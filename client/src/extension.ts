@@ -10,6 +10,7 @@ import { setupDecorators } from './setupDecorators';
 import { setupPDEFiles } from './setupPDEFiles';
 import { EventEmitter } from 'stream';
 import setupConsole from './setupConsole';
+import { setupDownload } from './setupDownload';
 
 
 export interface ProcessingVersion {
@@ -34,12 +35,15 @@ export async function activate(context: ExtensionContext) {
 	// TODO: limit running sketches when a sketch is open
 	// TODO: Sketch explorer context menu (right click)
 
+	// Runs through ProcessingCLI, so don't wait for the Processing version
+	setupDownload(context);
+	setupConsole(context);
+
 	// Set up the selected Processing version, awaiting because we don't want to continue until we have a version
 	await setupSelectedVersion(context);
 	setupCommands(context);
 	setupLanguageServer();
 	setupSidebar(context);
-	setupConsole(context);
 	setupDecorators(context);
 	setupPDEFiles();
 }

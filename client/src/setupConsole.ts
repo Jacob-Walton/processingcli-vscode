@@ -1,7 +1,8 @@
 import { ChildProcess, spawn } from 'child_process';
 import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, WebviewViewResolveContext, window, workspace } from 'vscode';
 import { state } from './extension';
-import { dirname } from 'path';
+import { dirname, isAbsolute } from 'path';
+import { existsSync } from 'fs';
 import * as treeKill from 'tree-kill';
 
 export default function setupConsole(context: ExtensionContext) {
@@ -29,21 +30,41 @@ export default function setupConsole(context: ExtensionContext) {
 		if (!resource) {
 			return;
 		}
-		commands.executeCommand('processingConsoleView.focus');
-		commands.executeCommand('processing.sketch.stop');
 
 		const extraArgs = [];
 		if (Array.isArray(extraArguments)) {
 			extraArgs.push(...extraArguments);
 		}
 
-		const proc = spawn(
-			state.selectedVersion.path,
-			['cli', `--sketch=${dirname(resource.fsPath)}`, ...extraArgs, '--run'],
-			{
-				shell: false,
-			}
-		);
+		const cliPath = workspace.getConfiguration('processing').get<string>('cliPath', '');
+		if (extraArgs.length === 0 && !(isAbsolute(cliPath) && existsSync(cliPath))) {
+			window.showErrorMessage(
+				`ProcessingCLI not found. Download it, or set processing.cliPath to its full path.`,
+				'Download',
+				'Open Settings'
+			).then((choice) => {
+				if (choice === 'Download') {
+					commands.executeCommand('processing.cli.download');
+				} else if (choice === 'Open Settings') {
+					commands.executeCommand('workbench.action.openSettings', 'processing.cliPath');
+				}
+			});
+			return;
+		}
+
+		if (extraArgs.length > 0 && !state.selectedVersion) {
+			window.showErrorMessage('Exporting needs Processing 4.4.6 or higher installed.');
+			return;
+		}
+
+		commands.executeCommand('processingConsoleView.focus');
+		commands.executeCommand('processing.sketch.stop');
+
+		const sketchFolder = dirname(resource.fsPath);
+		// ProcessingCLI can't export
+		const proc = extraArgs.length > 0
+			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false })
+			: spawn(cliPath, [sketchFolder], { shell: false });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';

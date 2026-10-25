@@ -1,16 +1,15 @@
 {
-	"name": "processing-vscode-extension",
+	"name": "processingcli-vscode",
 	"version": "0.0.0",
-	"publisher": "processing-foundation",
-	"displayName": "Processing",
-	"description": "The easiest way to create and run Processing sketches in VSCode. With syntax highlighting, code completion, error checking, and more.",
-	"author": "Processing Foundation",
+	"publisher": "konpeki",
+	"displayName": "ProcessingCLI for VS Code",
+	"description": "Run Processing sketches in VS Code with ProcessingCLI. A fork of the Processing Foundation extension with faster, more reliable sketch launching.",
+	"author": "Jacob Walton",
 	"license": "LGPL-2.1-or-later",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/processing/processing-vscode-extension"
+		"url": "https://github.com/Jacob-Walton/processingcli-vscode"
 	},
-	"icon": "media/processing-logo.png",
 	"categories": [
 		"Programming Languages"
 	],
@@ -31,9 +30,6 @@
 		"creative-coding",
 		"learning"
 	],
-	"sponsor": {
-		"url": "https://github.com/processing"
-	},
 	"engines": {
 		"vscode": "^1.75.0"
 	},
@@ -71,6 +67,10 @@
 			{
 				"command": "processing.sketch.export",
 				"title": "Export the Processing Sketch"
+			},
+			{
+				"command": "processing.cli.download",
+				"title": "Download ProcessingCLI"
 			}
 		],
 		"keybindings": [
@@ -133,6 +133,12 @@
 					"type": "string",
 					"default": "latest",
 					"description": "The version of the Processing to use. The latest version is used by default."
+				},
+				"processing.cliPath": {
+					"scope": "machine",
+					"type": "string",
+					"default": "",
+					"description": "Absolute path to the ProcessingCLI executable used to run sketches."
 				},
 				"processing.autosave": {
 					"scope": "window",
