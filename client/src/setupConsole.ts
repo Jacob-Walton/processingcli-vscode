@@ -2,7 +2,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, WebviewViewResolveContext, window, workspace } from 'vscode';
 import { state } from './extension';
 import { dirname } from 'path';
-import * as treeKill from 'tree-kill';
+import treeKill = require('tree-kill');
 import { ensureCli } from './setupDownload';
 
 export default function setupConsole(context: ExtensionContext) {

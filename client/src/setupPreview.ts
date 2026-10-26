@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { randomBytes } from 'crypto';
 import { AddressInfo, createServer } from 'net';
 import { basename, dirname } from 'path';
-import * as treeKill from 'tree-kill';
+import treeKill = require('tree-kill');
 import { commands, ExtensionContext, Uri, ViewColumn, WebviewPanel, window, workspace } from 'vscode';
 
 export function setupPreview(context: ExtensionContext) {
