@@ -4,7 +4,7 @@ import { createWriteStream, existsSync } from 'fs';
 import { mkdir, rm } from 'fs/promises';
 import { IncomingMessage } from 'http';
 import { get } from 'https';
-import { isAbsolute, join } from 'path';
+import { basename, isAbsolute, join } from 'path';
 import { pipeline } from 'stream/promises';
 import { commands, ConfigurationTarget, ExtensionContext, ProgressLocation, window, workspace } from 'vscode';
 
@@ -14,6 +14,7 @@ const DOWNLOAD_URL = 'https://cdn.konpeki.co.uk/processingcli';
 const platforms: Record<string, { name: string, executable: string[] }> = {
 	win32: { name: 'windows', executable: ['ProcessingCLI', 'ProcessingCLI.exe'] },
 	darwin: { name: 'macos', executable: ['ProcessingCLI.app', 'Contents', 'MacOS', 'ProcessingCLI'] },
+	linux: { name: 'linux', executable: ['ProcessingCLI', 'bin', 'ProcessingCLI'] },
 };
 
 interface Manifest {
@@ -84,7 +85,7 @@ async function install(): Promise<boolean> {
 		return false;
 	}
 	const target = `${platform.name}-${process.arch}`;
-	const zipPath = join(installRoot, `ProcessingCLI-${target}.zip`);
+	let archive = '';
 	let version = '';
 
 	// Windows won't replace files a running sketch or the language server has open
@@ -100,20 +101,24 @@ async function install(): Promise<boolean> {
 				throw new Error(`no download for ${target}`);
 			}
 			version = manifest.version;
-			const actual = await downloadFile(`${DOWNLOAD_URL}/${file.url}`, zipPath, (percent) => progress.report({ increment: percent }));
+			// .zip, or .tar.gz on Linux
+			archive = join(installRoot, basename(file.url));
+			const actual = await downloadFile(`${DOWNLOAD_URL}/${file.url}`, archive, (percent) => progress.report({ increment: percent }));
 			if (actual !== file.sha256.toLowerCase()) {
 				throw new Error(`checksum mismatch for ${file.url}`);
 			}
 			progress.report({ message: 'Extracting' });
 			await rm(installDir(), { recursive: true, force: true });
 			await mkdir(installDir(), { recursive: true });
-			await unzip(zipPath, installDir());
+			await unpack(archive, installDir());
 		});
 	} catch (error) {
 		window.showErrorMessage(`Could not download ProcessingCLI: ${error instanceof Error ? error.message : error}`);
 		return false;
 	} finally {
-		await rm(zipPath, { force: true });
+		if (archive) {
+			await rm(archive, { force: true });
+		}
 		await commands.executeCommand('processing.lsp.start');
 	}
 
@@ -160,10 +165,13 @@ async function downloadFile(url: string, dest: string, onProgress: (percent: num
 	return hash.digest('hex');
 }
 
-function unzip(zip: string, dest: string) {
+// Tools every install of each OS has, by absolute path
+function unpack(archive: string, dest: string) {
 	const [command, args] = process.platform === 'win32'
-		? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', zip, '-C', dest]]
-		: ['/usr/bin/ditto', ['-x', '-k', zip, dest]];
+		? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', archive, '-C', dest]]
+		: process.platform === 'darwin'
+			? ['/usr/bin/ditto', ['-x', '-k', archive, dest]]
+			: [existsSync('/usr/bin/tar') ? '/usr/bin/tar' : '/bin/tar', ['-xzf', archive, '-C', dest]];
 	return new Promise<void>((resolve, reject) => {
 		execFile(command, args, (error) => error ? reject(error) : resolve());
 	});

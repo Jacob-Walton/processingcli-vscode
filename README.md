@@ -21,7 +21,7 @@ It is not made or endorsed by the Processing Foundation.
 
 Search for "ProcessingCLI" in the Extensions view (`Ctrl + Shift + X`, or `Cmd + Shift + X` on macOS) and install the extension published by "konpeki".
 
-The first time you run a sketch, the extension downloads ProcessingCLI (about 125 MB) to `%LOCALAPPDATA%\ProcessingCLI` on Windows, which isn't part of a roaming profile. Downloads are available for Windows (x64) and macOS (Apple Silicon). Run **Download ProcessingCLI** from the Command Palette to update it. On other platforms, or to use your own build, set `processing.cliPath`.
+The first time you run a sketch, the extension downloads ProcessingCLI (about 125 MB) to `%LOCALAPPDATA%\ProcessingCLI` on Windows, which isn't part of a roaming profile. Downloads are available for Windows (x64), macOS (Apple Silicon) and Linux (x64). Run **Download ProcessingCLI** from the Command Palette to update it. On other platforms, or to use your own build, set `processing.cliPath`.
 
 ### Running Your First Sketch
 
