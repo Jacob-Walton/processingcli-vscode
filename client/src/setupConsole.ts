@@ -1,9 +1,9 @@
 import { ChildProcess, spawn } from 'child_process';
 import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, WebviewViewResolveContext, window, workspace } from 'vscode';
 import { state } from './extension';
-import { dirname, isAbsolute } from 'path';
-import { existsSync } from 'fs';
+import { dirname } from 'path';
 import * as treeKill from 'tree-kill';
+import { ensureCli } from './setupDownload';
 
 export default function setupConsole(context: ExtensionContext) {
 	const sketchProcesses: ChildProcess[] = [];
@@ -12,7 +12,7 @@ export default function setupConsole(context: ExtensionContext) {
 
 	const register = window.registerWebviewViewProvider('processingConsoleView', provider);
 
-	const startSketch = commands.registerCommand('processing.sketch.run', (resource: Uri, extraArguments: string[], preview?: string) => {
+	const startSketch = commands.registerCommand('processing.sketch.run', async (resource: Uri, extraArguments: string[], preview?: string) => {
 		const autosave = workspace
 			.getConfiguration('processing')
 			.get<boolean>('autosave');
@@ -36,19 +36,8 @@ export default function setupConsole(context: ExtensionContext) {
 			extraArgs.push(...extraArguments);
 		}
 
-		const cliPath = workspace.getConfiguration('processing').get<string>('cliPath', '');
-		if (extraArgs.length === 0 && !(isAbsolute(cliPath) && existsSync(cliPath))) {
-			window.showErrorMessage(
-				`ProcessingCLI not found. Download it, or set processing.cliPath to its full path.`,
-				'Download',
-				'Open Settings'
-			).then((choice) => {
-				if (choice === 'Download') {
-					commands.executeCommand('processing.cli.download');
-				} else if (choice === 'Open Settings') {
-					commands.executeCommand('workbench.action.openSettings', 'processing.cliPath');
-				}
-			});
+		const cliPath = extraArgs.length === 0 ? await ensureCli() : undefined;
+		if (extraArgs.length === 0 && !cliPath) {
 			return;
 		}
 
@@ -68,7 +57,7 @@ export default function setupConsole(context: ExtensionContext) {
 		// ProcessingCLI can't export
 		const proc = extraArgs.length > 0
 			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false })
-			: spawn(cliPath, cliArgs, { shell: false });
+			: spawn(cliPath as string, cliArgs, { shell: false });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';
@@ -123,11 +112,10 @@ export default function setupConsole(context: ExtensionContext) {
 		commands.executeCommand('processing.sketch.run', resource);
 	});
 
-	const stopSketch = commands.registerCommand('processing.sketch.stop', () => {
-		for (const proc of sketchProcesses) {
-			treeKill(proc.pid as number);
-		}
-	});
+	// Resolves once taskkill is done, so callers can replace files the sketches had open
+	const stopSketch = commands.registerCommand('processing.sketch.stop', () =>
+		Promise.all(sketchProcesses.map((proc) => new Promise((resolve) => treeKill(proc.pid as number, 'SIGKILL', resolve))))
+	);
 
 	const buildSketch = commands.registerCommand('processing.sketch.export', () => {
 		commands.executeCommand('processing.sketch.run', undefined, ['--export']);

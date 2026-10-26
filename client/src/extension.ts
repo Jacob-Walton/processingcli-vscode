@@ -4,7 +4,7 @@ import { ExtensionContext, Terminal } from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { setupSelectedVersion } from './setupSelectedVersion';
 import { setupCommands } from './setupCommands';
-import { setupLanguageServer } from './setupLanguageServer';
+import { setupLanguageServer, setupProcessingCompletion } from './setupLanguageServer';
 import { setupSidebar } from './setupSidebar';
 import { setupDecorators } from './setupDecorators';
 import { setupPDEFiles } from './setupPDEFiles';
@@ -40,11 +40,12 @@ export async function activate(context: ExtensionContext) {
 	setupDownload(context);
 	setupConsole(context);
 	setupPreview(context);
+	setupLanguageServer(context);
 
 	// Set up the selected Processing version, awaiting because we don't want to continue until we have a version
 	await setupSelectedVersion(context);
 	setupCommands(context);
-	setupLanguageServer();
+	setupProcessingCompletion();
 	setupSidebar(context);
 	setupDecorators(context);
 	setupPDEFiles();

@@ -1,36 +1,57 @@
-import { workspace } from 'vscode';
+import { existsSync } from 'fs';
+import { commands, ExtensionContext } from 'vscode';
 import { LanguageClientOptions } from 'vscode-languageclient';
-import { Executable, LanguageClient } from 'vscode-languageclient/node';
+import { LanguageClient } from 'vscode-languageclient/node';
 import { state } from './extension';
+import { cliPath } from './setupDownload';
 
-export function setupLanguageServer() {
-	// TODO: Listen for version changes and restart the server
+const documentSelector = [{ scheme: 'file', language: 'Processing' }];
 
-	const serverOptions: Executable = {
-		command: state.selectedVersion.path,
-		args: ["lsp"]
-	};
+// ProcessingCLI's language server: errors, hover docs and go to definition
+export function setupLanguageServer(context: ExtensionContext) {
+	let client: LanguageClient | undefined;
 
-	const clientOptions: LanguageClientOptions = {
-		documentSelector: [{ scheme: 'file', language: 'Processing' }],
-		synchronize: {
-			// Notify the server about file changes to '.clientrc files contained in the workspace
-			fileEvents: workspace.createFileSystemWatcher('**/*.{pde,java}')
+	const start = async () => {
+		const path = cliPath();
+		if (client || !existsSync(path)) {
+			return;
 		}
+		client = new LanguageClient('processingCli', 'ProcessingCLI Language Server', { command: path, args: ['lsp'] }, { documentSelector });
+		await client.start();
+	};
+	const stop = async () => {
+		const running = client;
+		client = undefined;
+		await running?.stop();
 	};
 
-	// Create the language client and start the client.
+	// The download replaces files the server has open, so it stops and restarts it
+	context.subscriptions.push(
+		commands.registerCommand('processing.lsp.start', start),
+		commands.registerCommand('processing.lsp.stop', stop),
+		{ dispose: stop }
+	);
+	start();
+}
+
+// Processing's own server, only used for completion now. Its errors and hovers would duplicate ours
+export function setupProcessingCompletion() {
+	if (!state.selectedVersion) {
+		return;
+	}
+	const clientOptions: LanguageClientOptions = {
+		documentSelector,
+		middleware: {
+			handleDiagnostics: () => {},
+			provideHover: () => undefined,
+			provideDefinition: () => undefined,
+		},
+	};
 	state.client = new LanguageClient(
 		'processingLanguageServer',
 		'Processing Language Server',
-		serverOptions,
+		{ command: state.selectedVersion.path, args: ['lsp'] },
 		clientOptions
 	);
-
-	state.client.error = function (e) {
-		console.log(e);
-	};
-
-	// Start the client. This will also launch the server
 	state.client.start();
 }

@@ -148,7 +148,7 @@
 					"scope": "machine",
 					"type": "string",
 					"default": "",
-					"description": "Absolute path to the ProcessingCLI executable used to run sketches."
+					"description": "Absolute path to your own ProcessingCLI executable. Leave empty to use the one the extension downloads."
 				},
 				"processing.autosave": {
 					"scope": "window",

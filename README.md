@@ -15,13 +15,13 @@ It is not made or endorsed by the Processing Foundation.
 ### Prerequisites
 
 - Uninstall the Processing Foundation extension and any other Processing extensions. They conflict with this one.
-- Running sketches doesn't need Processing installed. Code suggestions, error checking, the sketchbook sidebar and exporting still use **Processing 4.4.6 or later** ([Download Processing](https://processing.org)). Run it once after installing so it creates the files the extension needs.
+- You don't need Java or Processing installed to run sketches, see errors or get hover docs. Code completion, the sketchbook sidebar and exporting still use **Processing 4.4.6 or later** ([Download Processing](https://processing.org)). Run it once after installing so it creates the files the extension needs.
 
 ### Installation
 
 Search for "ProcessingCLI" in the Extensions view (`Ctrl + Shift + X`, or `Cmd + Shift + X` on macOS) and install the extension published by "konpeki".
 
-Then open the Command Palette (`Ctrl + Shift + P`, or `Cmd + Shift + P` on macOS) and run **Download ProcessingCLI**. It downloads ProcessingCLI and sets `processing.cliPath` for you. Downloads are available for Windows (x64) and macOS (Apple Silicon). On other platforms, or to use your own build, set `processing.cliPath` yourself.
+The first time you run a sketch, the extension downloads ProcessingCLI (about 125 MB) to `%LOCALAPPDATA%\ProcessingCLI` on Windows, which isn't part of a roaming profile. Downloads are available for Windows (x64) and macOS (Apple Silicon). Run **Download ProcessingCLI** from the Command Palette to update it. On other platforms, or to use your own build, set `processing.cliPath`.
 
 ### Running Your First Sketch
 
@@ -35,7 +35,7 @@ The sketch's output appears in the Processing Console panel at the bottom of VS 
 
 Open Settings (`Ctrl + ,`, or `Cmd + ,` on macOS) and search for "Processing".
 
-- `processing.cliPath`: Full path to the ProcessingCLI executable used to run sketches. **Download ProcessingCLI** sets this.
+- `processing.cliPath`: Full path to your own ProcessingCLI executable. Leave it empty to use the downloaded one.
 - `processing.autosave`: Saves your sketch before running it. Default: `true`.
 - `processing.newWindow`: Opens sketches in a new VS Code window. If disabled, sketches open in the current window. Default: `true`.
 - `processing.version`: Which installed Processing version to use for code suggestions, the sidebar and exporting. Default: `latest`, or give a version such as `4.4.6`.
