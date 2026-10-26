@@ -88,6 +88,38 @@ export function setupDownload(context: ExtensionContext) {
 
 	const command = commands.registerCommand('processing.cli.download', download);
 	context.subscriptions.push(command);
+	checkForUpdate(context);
+}
+
+// Once a day, and only for the downloaded ProcessingCLI. Versioned installs mean nothing in use is touched
+async function checkForUpdate(context: ExtensionContext) {
+	const last = context.globalState.get<number>('processingcli.updateCheck', 0);
+	if (configuredPath() || Date.now() - last < 24 * 60 * 60 * 1000 || !existsSync(cliPath())) {
+		return;
+	}
+	await context.globalState.update('processingcli.updateCheck', Date.now());
+	try {
+		const manifest: Manifest = JSON.parse(await fetchText(`${DOWNLOAD_URL}/latest.json?t=${Date.now()}`));
+		if (isNewer(manifest.version, currentVersion())) {
+			await download();
+		}
+	} catch {
+		// Offline, try again tomorrow
+	}
+}
+
+// No version means the layout from before versioned installs, which is older than anything on the CDN
+function isNewer(latest: string, installed: string) {
+	if (!installed) {
+		return true;
+	}
+	const a = latest.split('.').map(Number), b = installed.split('.').map(Number);
+	for (let i = 0; i < Math.max(a.length, b.length); i++) {
+		if ((a[i] ?? 0) !== (b[i] ?? 0)) {
+			return (a[i] ?? 0) > (b[i] ?? 0);
+		}
+	}
+	return false;
 }
 
 async function install(): Promise<boolean> {
