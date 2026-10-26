@@ -1,4 +1,10 @@
 .vscode/**
+.github/**
+.idea/**
+eslint.config.mjs
+BUILD.md
+**/tsconfig.tsbuildinfo
+**/package-lock.json
 **/*.ts
 **/*.map
 .gitignore

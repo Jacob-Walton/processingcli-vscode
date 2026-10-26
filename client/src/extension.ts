@@ -11,6 +11,7 @@ import { setupPDEFiles } from './setupPDEFiles';
 import { EventEmitter } from 'stream';
 import setupConsole from './setupConsole';
 import { setupDownload } from './setupDownload';
+import { setupPreview } from './setupPreview';
 
 
 export interface ProcessingVersion {
@@ -38,6 +39,7 @@ export async function activate(context: ExtensionContext) {
 	// Runs through ProcessingCLI, so don't wait for the Processing version
 	setupDownload(context);
 	setupConsole(context);
+	setupPreview(context);
 
 	// Set up the selected Processing version, awaiting because we don't want to continue until we have a version
 	await setupSelectedVersion(context);

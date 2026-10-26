@@ -71,6 +71,11 @@
 			{
 				"command": "processing.cli.download",
 				"title": "Download ProcessingCLI"
+			},
+			{
+				"command": "processing.sketch.preview",
+				"title": "Preview the Processing Sketch",
+				"icon": "$(open-preview)"
 			}
 		],
 		"keybindings": [
@@ -90,6 +95,11 @@
 				}
 			],
 			"editor/title": [
+				{
+					"command": "processing.sketch.preview",
+					"when": "editorLangId == Processing || editorLangId == java",
+					"group": "navigation"
+				},
 				{
 					"command": "processing.sketch.run",
 					"when": "!processing.sketch.running && (editorLangId == Processing || editorLangId == java)",
@@ -233,7 +243,6 @@
 		"typescript-eslint": "^8.26.0"
 	},
 	"dependencies": {
-		"ovsx": "^0.10.7",
 		"tree-kill": "^1.2.2"
 	}
 }

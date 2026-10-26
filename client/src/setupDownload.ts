@@ -8,12 +8,18 @@ import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { commands, ConfigurationTarget, ExtensionContext, ProgressLocation, window, workspace } from 'vscode';
 
-const DOWNLOAD_URL = 'https://cdn.konpeki.co.uk/processingcli/latest';
+// latest.json lists the current version's zip and checksum for each platform
+const DOWNLOAD_URL = 'https://cdn.konpeki.co.uk/processingcli';
 
-const platforms: Record<string, { name: string, folder: string, executable: string[] }> = {
-	win32: { name: 'windows', folder: 'ProcessingCLI-Windows', executable: ['ProcessingCLI', 'ProcessingCLI.exe'] },
-	darwin: { name: 'macos', folder: 'ProcessingCLI-macOS', executable: ['ProcessingCLI.app', 'Contents', 'MacOS', 'ProcessingCLI'] },
+const platforms: Record<string, { name: string, executable: string[] }> = {
+	win32: { name: 'windows', executable: ['ProcessingCLI', 'ProcessingCLI.exe'] },
+	darwin: { name: 'macos', executable: ['ProcessingCLI.app', 'Contents', 'MacOS', 'ProcessingCLI'] },
 };
+
+interface Manifest {
+	version: string;
+	files: Record<string, { url: string, sha256: string }>;
+}
 
 export function setupDownload(context: ExtensionContext) {
 	const download = commands.registerCommand('processing.cli.download', async () => {
@@ -22,10 +28,11 @@ export function setupDownload(context: ExtensionContext) {
 			window.showErrorMessage(`ProcessingCLI is not available for ${process.platform}.`);
 			return;
 		}
-		const zipName = `ProcessingCLI-${platform.name}-${process.arch}.zip`;
+		const target = `${platform.name}-${process.arch}`;
 		const storage = context.globalStorageUri.fsPath;
-		const zipPath = join(storage, zipName);
+		const zipPath = join(storage, `ProcessingCLI-${target}.zip`);
 		const installDir = join(storage, 'ProcessingCLI');
+		let version = '';
 
 		// Running sketches lock the old files on Windows
 		await commands.executeCommand('processing.sketch.stop');
@@ -33,11 +40,15 @@ export function setupDownload(context: ExtensionContext) {
 		try {
 			await window.withProgress({ location: ProgressLocation.Notification, title: 'Downloading ProcessingCLI' }, async (progress) => {
 				await mkdir(storage, { recursive: true });
-				const url = `${DOWNLOAD_URL}/${platform.folder}/${zipName}`;
-				const expected = (await fetchText(`${url}.sha256`)).trim().split(/\s+/)[0].toLowerCase();
-				const actual = await downloadFile(url, zipPath, (percent) => progress.report({ increment: percent }));
-				if (actual !== expected) {
-					throw new Error(`checksum mismatch for ${zipName}`);
+				const manifest: Manifest = JSON.parse(await fetchText(`${DOWNLOAD_URL}/latest.json?t=${Date.now()}`));
+				const file = manifest.files[target];
+				if (!file) {
+					throw new Error(`no download for ${target}`);
+				}
+				version = manifest.version;
+				const actual = await downloadFile(`${DOWNLOAD_URL}/${file.url}`, zipPath, (percent) => progress.report({ increment: percent }));
+				if (actual !== file.sha256.toLowerCase()) {
+					throw new Error(`checksum mismatch for ${file.url}`);
 				}
 				progress.report({ message: 'Extracting' });
 				await rm(installDir, { recursive: true, force: true });
@@ -53,7 +64,7 @@ export function setupDownload(context: ExtensionContext) {
 
 		const cliPath = join(installDir, ...platform.executable);
 		await workspace.getConfiguration('processing').update('cliPath', cliPath, ConfigurationTarget.Global);
-		window.showInformationMessage(`ProcessingCLI installed to ${cliPath}`);
+		window.showInformationMessage(`ProcessingCLI ${version} installed to ${cliPath}`);
 	});
 
 	context.subscriptions.push(download);

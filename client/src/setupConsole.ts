@@ -12,11 +12,11 @@ export default function setupConsole(context: ExtensionContext) {
 
 	const register = window.registerWebviewViewProvider('processingConsoleView', provider);
 
-	const startSketch = commands.registerCommand('processing.sketch.run', (resource: Uri, extraArguments: string[]) => {
+	const startSketch = commands.registerCommand('processing.sketch.run', (resource: Uri, extraArguments: string[], preview?: string) => {
 		const autosave = workspace
 			.getConfiguration('processing')
 			.get<boolean>('autosave');
-		if (autosave === true) {
+		if (autosave === true && preview === undefined) {
 			// Save all files before running the sketch
 			commands.executeCommand('workbench.action.files.saveAll');
 		}
@@ -57,14 +57,18 @@ export default function setupConsole(context: ExtensionContext) {
 			return;
 		}
 
-		commands.executeCommand('processingConsoleView.focus');
+		// The preview shows its own output, and restarting on save shouldn't take focus
+		if (preview === undefined) {
+			commands.executeCommand('processingConsoleView.focus');
+		}
 		commands.executeCommand('processing.sketch.stop');
 
 		const sketchFolder = dirname(resource.fsPath);
+		const cliArgs = preview === undefined ? [sketchFolder] : [`--preview=${preview}`, sketchFolder];
 		// ProcessingCLI can't export
 		const proc = extraArgs.length > 0
 			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false })
-			: spawn(cliPath, [sketchFolder], { shell: false });
+			: spawn(cliPath, cliArgs, { shell: false });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';
@@ -106,10 +110,13 @@ export default function setupConsole(context: ExtensionContext) {
 			sketchProcesses.splice(sketchProcesses.indexOf(proc), 1);
 			commands.executeCommand('setContext', 'processing.sketch.running', sketchProcesses.length > 0);
 		});
-		provider.webview?.show?.(true);
+		if (preview === undefined) {
+			provider.webview?.show?.(true);
+		}
 		provider.webview?.webview.postMessage({ type: 'clear' });
 		sketchProcesses.unshift(proc);
 		commands.executeCommand('setContext', 'processing.sketch.running', true);
+		return proc;
 	});
 
 	const restartSketch = commands.registerCommand('processing.sketch.restart', (resource: Uri) => {
