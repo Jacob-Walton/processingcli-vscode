@@ -15,7 +15,7 @@ It is not made or endorsed by the Processing Foundation.
 ### Prerequisites
 
 - Uninstall the Processing Foundation extension and any other Processing extensions. They conflict with this one.
-- You don't need Java or Processing installed to run sketches, see errors or get hover docs. Code completion, the sketchbook sidebar and exporting still use **Processing 4.4.6 or later** ([Download Processing](https://processing.org)). Run it once after installing so it creates the files the extension needs.
+- You don't need Java or Processing installed to run sketches, see errors, or get hover docs and code completion. The sketchbook sidebar and exporting still use **Processing 4.4.6 or later** ([Download Processing](https://processing.org)). Run it once after installing so it creates the files the extension needs.
 
 ### Installation
 

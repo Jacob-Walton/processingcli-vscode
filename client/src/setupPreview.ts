@@ -2,7 +2,7 @@ import { ChildProcess, execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { AddressInfo, createServer } from 'net';
 import { basename, dirname } from 'path';
-import treeKill = require('tree-kill');
+import { killTree } from './killTree';
 import { commands, ExtensionContext, Uri, ViewColumn, WebviewPanel, window, workspace } from 'vscode';
 import { cliPath } from './setupDownload';
 
@@ -25,7 +25,7 @@ export function setupPreview(context: ExtensionContext) {
 		if (previous?.pid && previous.exitCode === null) {
 			await Promise.all([
 				new Promise((resolve) => previous.once('exit', resolve)),
-				new Promise((resolve) => treeKill(previous.pid as number, 'SIGKILL', resolve)),
+				killTree(previous.pid),
 			]);
 		}
 		const proc = await commands.executeCommand<ChildProcess | undefined>('processing.sketch.run', sketchFile, undefined, address);
@@ -86,7 +86,7 @@ export function setupPreview(context: ExtensionContext) {
 			panel.onDidDispose(() => {
 				panel = undefined;
 				if (current?.pid) {
-					treeKill(current.pid);
+					killTree(current.pid);
 				}
 				current = undefined;
 			});
@@ -118,7 +118,7 @@ function supportsReload(path: string) {
 	let supported = reloadSupport.get(path);
 	if (!supported) {
 		supported = new Promise((resolve) => {
-			execFile(path, ['--version'], (error, stdout) => {
+			execFile(path, ['--version'], { windowsHide: true }, (error, stdout) => {
 				const version = /ProcessingCLI (\S+)/.exec(stdout)?.[1] ?? '';
 				const [major, minor] = version.split('.').map(Number);
 				resolve(!error && (version === 'dev' || major > 1 || (major === 1 && minor >= 2)));
@@ -266,11 +266,13 @@ function previewHtml(nonce: string, port: number, token: string) {
 			let socket;
 			let width = 0;
 			let height = 0;
-			let pending;
+			// Frames waiting to be shown, each with whether it's from the new sketch after a reload
+			const queue = [];
 			let pressed = 0;
 			// The old sketch can send a few more frames after a reload starts, only the new one's clear the overlay
 			let restartedAt = 0;
-			let pendingIsNew = false;
+			// Asks ProcessingCLI for the next frame, see Pacer
+			const TICK = new Uint8Array([84]).buffer;
 			// Newer ProcessingCLIs say when the new sketch is running, older ones only send frames
 			let sendsStatus = false;
 			let running = false;
@@ -308,15 +310,20 @@ function previewHtml(nonce: string, port: number, token: string) {
 			};
 			new ResizeObserver(() => width && fit()).observe(stage);
 
-			// Only draw the newest frame, once per display refresh
+			// Every display refresh: tick so the sketch draws its next frame now, and show the oldest waiting
+			// frame. Oldest, not newest, so a frame that arrives a little late is shown next time instead of skipped
 			const draw = () => {
 				requestAnimationFrame(draw);
-				if (!pending) {
+				if (socket && socket.readyState === WebSocket.OPEN) {
+					socket.send(TICK);
+				}
+				const next = queue.shift();
+				if (!next) {
 					return;
 				}
-				const frame = new DataView(pending);
+				const frame = new DataView(next.data);
 				const pixelWidth = frame.getInt32(0, true), pixelHeight = frame.getInt32(4, true);
-				const pixels = new Uint8Array(pending, 16, pixelWidth * pixelHeight * 4);
+				const pixels = new Uint8Array(next.data, 16, pixelWidth * pixelHeight * 4);
 				if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
 					canvas.width = pixelWidth;
 					canvas.height = pixelHeight;
@@ -331,8 +338,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 					fit();
 				}
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-				pending = undefined;
-				if (pendingIsNew) {
+				if (next.isNew) {
 					hide();
 				}
 			};
@@ -353,8 +359,11 @@ function previewHtml(nonce: string, port: number, token: string) {
 						status(JSON.parse(e.data).type);
 						return;
 					}
-					pending = e.data;
-					pendingIsNew = sendsStatus ? running : opened >= restartedAt;
+					queue.push({ data: e.data, isNew: sendsStatus ? running : opened >= restartedAt });
+					// More than two waiting means the preview is falling behind, drop the oldest
+					if (queue.length > 2) {
+						queue.shift();
+					}
 				};
 				socket.onerror = () => {};
 				socket.onclose = () => setTimeout(connect, 100);

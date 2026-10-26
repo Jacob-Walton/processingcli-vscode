@@ -134,6 +134,14 @@
 				}
 			]
 		},
+		"configurationDefaults": {
+			"[Processing]": {
+				"editor.semanticHighlighting.enabled": true,
+				"editor.tabSize": 2,
+				"editor.insertSpaces": true,
+				"editor.detectIndentation": false
+			}
+		},
 		"configuration": {
 			"type": "object",
 			"title": "Processing",

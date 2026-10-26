@@ -97,7 +97,7 @@ class ProcessingWindowDataProvider implements TreeDataProvider<FolderTreeItem | 
 
 	grabSketches(): Promise<Folder[]> {
 		return new Promise<Folder[]>((resolve) => {
-			const process = spawn(state.selectedVersion.path, this.command.split(' '));
+			const process = spawn(state.selectedVersion.path, this.command.split(' '), { windowsHide: true });
 			let data = '';
 			process.stdout.on('data', (chunk) => {
 				data += chunk;

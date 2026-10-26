@@ -250,6 +250,6 @@ function unpack(archive: string, dest: string) {
 			? ['/usr/bin/ditto', ['-x', '-k', archive, dest]]
 			: [existsSync('/usr/bin/tar') ? '/usr/bin/tar' : '/bin/tar', ['-xzf', archive, '-C', dest]];
 	return new Promise<void>((resolve, reject) => {
-		execFile(command, args, (error) => error ? reject(error) : resolve());
+		execFile(command, args, { windowsHide: true }, (error) => error ? reject(error) : resolve());
 	});
 }

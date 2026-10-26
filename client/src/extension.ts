@@ -1,10 +1,9 @@
 
 import { ExtensionContext, Terminal } from 'vscode';
 
-import { LanguageClient } from 'vscode-languageclient/node';
 import { setupSelectedVersion } from './setupSelectedVersion';
 import { setupCommands } from './setupCommands';
-import { setupLanguageServer, setupProcessingCompletion } from './setupLanguageServer';
+import { setupLanguageServer } from './setupLanguageServer';
 import { setupSidebar } from './setupSidebar';
 import { setupDecorators } from './setupDecorators';
 import { setupPDEFiles } from './setupPDEFiles';
@@ -21,7 +20,6 @@ export interface ProcessingVersion {
 
 export const state = {
 	terminal: undefined as Terminal | undefined,
-	client: undefined as LanguageClient | undefined,
 	selectedVersion: undefined as ProcessingVersion | undefined,
 	onDidVersionChange: new EventEmitter<null>()
 };
@@ -45,18 +43,12 @@ export async function activate(context: ExtensionContext) {
 	// Set up the selected Processing version, awaiting because we don't want to continue until we have a version
 	await setupSelectedVersion(context);
 	setupCommands(context);
-	setupProcessingCompletion();
 	setupSidebar(context);
 	setupDecorators(context);
 	setupPDEFiles();
 }
 
 
-export function deactivate(): Thenable<void> | undefined {
-	if (!state.client) {
-		return undefined;
-	}
-	return state.client.stop();
-}
+export function deactivate() {}
 
 

@@ -2,7 +2,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, WebviewViewResolveContext, window, workspace } from 'vscode';
 import { state } from './extension';
 import { dirname } from 'path';
-import treeKill = require('tree-kill');
+import { killTree } from './killTree';
 import { ensureCli } from './setupDownload';
 
 export default function setupConsole(context: ExtensionContext) {
@@ -56,8 +56,8 @@ export default function setupConsole(context: ExtensionContext) {
 		const cliArgs = preview === undefined ? [sketchFolder] : [`--preview=${preview}`, sketchFolder];
 		// ProcessingCLI can't export
 		const proc = extraArgs.length > 0
-			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false })
-			: spawn(cliPath as string, cliArgs, { shell: false });
+			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false, windowsHide: true })
+			: spawn(cliPath as string, cliArgs, { shell: false, windowsHide: true });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';
@@ -114,7 +114,7 @@ export default function setupConsole(context: ExtensionContext) {
 
 	// Resolves once taskkill is done, so callers can replace files the sketches had open
 	const stopSketch = commands.registerCommand('processing.sketch.stop', () =>
-		Promise.all(sketchProcesses.map((proc) => new Promise((resolve) => treeKill(proc.pid as number, 'SIGKILL', resolve))))
+		Promise.all(sketchProcesses.map((proc) => killTree(proc.pid as number)))
 	);
 
 	const buildSketch = commands.registerCommand('processing.sketch.export', () => {
