@@ -1,9 +1,10 @@
-import { ChildProcess } from 'child_process';
+import { ChildProcess, execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { AddressInfo, createServer } from 'net';
 import { basename, dirname } from 'path';
 import treeKill = require('tree-kill');
 import { commands, ExtensionContext, Uri, ViewColumn, WebviewPanel, window, workspace } from 'vscode';
+import { cliPath } from './setupDownload';
 
 export function setupPreview(context: ExtensionContext) {
 	let panel: WebviewPanel | undefined;
@@ -40,10 +41,27 @@ export function setupPreview(context: ExtensionContext) {
 		proc.stdout?.on('data', log('stdout'));
 		proc.stderr?.on('data', log('stderr'));
 		proc.on('close', (code) => {
-			if (proc === current) {
+			if (proc !== current) {
+				return;
+			}
+			// 75: the old sketch wouldn't stop for a reload, so start a fresh ProcessingCLI
+			if (code === 75) {
+				start();
+			} else {
 				panel?.webview.postMessage({ type: 'stopped', error: !!code });
 			}
 		});
+	};
+
+	// Newer ProcessingCLIs reload the sketch in the same JVM, much faster than starting a new one
+	const reload = async () => {
+		const proc = current;
+		if (panel && proc?.stdin?.writable && proc.exitCode === null && await supportsReload(cliPath())) {
+			panel.webview.postMessage({ type: 'start' });
+			proc.stdin.write('reload\n');
+			return;
+		}
+		await start();
 	};
 
 	const preview = commands.registerCommand('processing.sketch.preview', async (resource?: Uri) => {
@@ -75,7 +93,7 @@ export function setupPreview(context: ExtensionContext) {
 		}
 		panel.title = `Preview ${basename(dirname(resource.fsPath))}`;
 		await workspace.saveAll(false);
-		await start();
+		await reload();
 	});
 
 	const onSave = workspace.onDidSaveTextDocument((document) => {
@@ -85,12 +103,30 @@ export function setupPreview(context: ExtensionContext) {
 		if (dirname(document.fileName) !== dirname(sketchFile.fsPath)) {
 			return;
 		}
-		// Save All saves several files at once, restart once
+		// Save All saves several files at once, reload once
 		clearTimeout(restart);
-		restart = setTimeout(start, 100);
+		restart = setTimeout(reload, 100);
 	});
 
 	context.subscriptions.push(preview, onSave);
+}
+
+const reloadSupport = new Map<string, Promise<boolean>>();
+
+// In-place reloads came in ProcessingCLI 1.2.0, local builds say "dev"
+function supportsReload(path: string) {
+	let supported = reloadSupport.get(path);
+	if (!supported) {
+		supported = new Promise((resolve) => {
+			execFile(path, ['--version'], (error, stdout) => {
+				const version = /ProcessingCLI (\S+)/.exec(stdout)?.[1] ?? '';
+				const [major, minor] = version.split('.').map(Number);
+				resolve(!error && (version === 'dev' || major > 1 || (major === 1 && minor >= 2)));
+			});
+		});
+		reloadSupport.set(path, supported);
+	}
+	return supported;
 }
 
 function freePort() {
@@ -137,10 +173,39 @@ function previewHtml(nonce: string, port: number, token: string) {
 				outline: none;
 			}
 
-			#status {
+			#overlay {
 				position: absolute;
-				left: 8px;
-				bottom: 8px;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 12px;
+				padding: 16px;
+				text-align: center;
+			}
+
+			#overlay[hidden] {
+				display: none;
+			}
+
+			.spinner {
+				width: 24px;
+				height: 24px;
+				border: 3px solid var(--vscode-progressBar-background);
+				border-top-color: transparent;
+				border-radius: 50%;
+				animation: spin 0.8s linear infinite;
+			}
+
+			#overlay:not(.busy) .spinner {
+				display: none;
+			}
+
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
 			}
 
 			#log {
@@ -168,14 +233,30 @@ function previewHtml(nonce: string, port: number, token: string) {
 	<body>
 		<div id="stage">
 			<canvas tabindex="0"></canvas>
-			<div id="status">Starting…</div>
+			<div id="overlay" class="busy">
+				<div class="spinner"></div>
+				<div id="message">Starting…</div>
+			</div>
 		</div>
 		<pre id="log"></pre>
 		<script nonce="${nonce}">
 			const canvas = document.querySelector('canvas');
-			const status = document.getElementById('status');
+			const overlay = document.getElementById('overlay');
+			const overlayMessage = document.getElementById('message');
 			const log = document.getElementById('log');
 			const stage = document.getElementById('stage');
+
+			// The last frame stays dimmed underneath while the sketch reloads
+			const show = (text, busy) => {
+				overlay.hidden = false;
+				overlay.classList.toggle('busy', busy);
+				overlayMessage.textContent = text;
+				canvas.style.opacity = '0.35';
+			};
+			const hide = () => {
+				overlay.hidden = true;
+				canvas.style.opacity = '';
+			};
 
 			// Same values as processing.event and PConstants
 			const PRESS = 1, RELEASE = 2, CLICK = 3, DRAG = 4, MOVE = 5, ENTER = 6, EXIT = 7, WHEEL = 8, TYPE = 3;
@@ -187,6 +268,12 @@ function previewHtml(nonce: string, port: number, token: string) {
 			let height = 0;
 			let pending;
 			let pressed = 0;
+			// The old sketch can send a few more frames after a reload starts, only the new one's clear the overlay
+			let restartedAt = 0;
+			let pendingIsNew = false;
+			// Newer ProcessingCLIs say when the new sketch is running, older ones only send frames
+			let sendsStatus = false;
+			let running = false;
 
 			// Frames are ARGB ints, so the bytes are BGRA, swap them back in the shader
 			const gl = canvas.getContext('webgl', { alpha: false, antialias: false, desynchronized: true });
@@ -245,26 +332,56 @@ function previewHtml(nonce: string, port: number, token: string) {
 				}
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 				pending = undefined;
-				status.textContent = '';
+				if (pendingIsNew) {
+					hide();
+				}
 			};
 			requestAnimationFrame(draw);
 
 			// Keeps trying, ProcessingCLI opens the port once the sketch has compiled
 			const connect = () => {
+				// Opened after the reload started means the new sketch. Not when it was made, on Windows a
+				// connection to a port nobody's listening on yet keeps retrying and can open seconds later
+				let opened = 0;
 				socket = new WebSocket('ws://127.0.0.1:${port}/${token}');
 				socket.binaryType = 'arraybuffer';
-				socket.onmessage = (e) => { pending = e.data; };
+				socket.onopen = () => {
+					opened = Date.now();
+				};
+				socket.onmessage = (e) => {
+					if (typeof e.data === 'string') {
+						status(JSON.parse(e.data).type);
+						return;
+					}
+					pending = e.data;
+					pendingIsNew = sendsStatus ? running : opened >= restartedAt;
+				};
 				socket.onerror = () => {};
 				socket.onclose = () => setTimeout(connect, 100);
 			};
 			connect();
 
+			// From ProcessingCLI: starting, reloading, running, error, stopped
+			const status = (type) => {
+				sendsStatus = true;
+				running = type === 'running';
+				if (type === 'reloading') {
+					show('Reloading…', true);
+				} else if (type === 'error') {
+					show('The sketch has an error, see the output below. Save to try again.', false);
+				} else if (type === 'stopped') {
+					show('Sketch stopped. Save to restart.', false);
+				}
+			};
+
 			addEventListener('message', ({ data: message }) => {
 				if (message.type === 'start') {
-					status.textContent = 'Starting…';
+					restartedAt = Date.now();
+					running = false;
+					show(width ? 'Reloading…' : 'Starting…', true);
 					log.textContent = '';
 				} else if (message.type === 'stopped') {
-					status.textContent = message.error ? 'Sketch stopped with an error. Save to try again.' : 'Sketch stopped. Save to restart.';
+					show(message.error ? 'Sketch stopped with an error, see the output below. Save to try again.' : 'Sketch stopped. Save to restart.', false);
 				} else if (message.type === 'log') {
 					const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
 					const span = document.createElement('span');

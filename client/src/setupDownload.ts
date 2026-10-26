@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { createHash } from 'crypto';
-import { createWriteStream, existsSync } from 'fs';
-import { mkdir, rm } from 'fs/promises';
+import { createWriteStream, existsSync, readFileSync } from 'fs';
+import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises';
 import { IncomingMessage } from 'http';
 import { get } from 'https';
 import { basename, isAbsolute, join } from 'path';
@@ -26,9 +26,22 @@ let installRoot = '';
 let oldInstallRoot = '';
 let downloading: Promise<boolean> | undefined;
 
-// LOCALAPPDATA rather than VS Code's storage, which is in the roaming profile on Windows
-function installDir() {
+function appDir() {
 	return join(installRoot, 'app');
+}
+
+// No current file means the layout from before versioned installs, app/ProcessingCLI
+function currentVersion() {
+	try {
+		return readFileSync(join(appDir(), 'current'), 'utf8').trim();
+	} catch {
+		return '';
+	}
+}
+
+function executable(version: string) {
+	const platform = platforms[process.platform];
+	return platform ? join(appDir(), version, ...platform.executable) : '';
 }
 
 // 1.0.0 saved its download location in the setting, that copy can't run the language server
@@ -39,8 +52,7 @@ function configuredPath() {
 
 // The user's own ProcessingCLI if they set one, otherwise the downloaded one
 export function cliPath() {
-	const platform = platforms[process.platform];
-	return configuredPath() || (platform ? join(installDir(), ...platform.executable) : '');
+	return configuredPath() || executable(currentVersion());
 }
 
 // Downloads ProcessingCLI the first time it's needed
@@ -86,44 +98,77 @@ async function install(): Promise<boolean> {
 	}
 	const target = `${platform.name}-${process.arch}`;
 	let archive = '';
+	let partial = '';
 	let version = '';
 
-	// Windows won't replace files a running sketch or the language server has open
-	await commands.executeCommand('processing.sketch.stop');
-	await commands.executeCommand('processing.lsp.stop');
-
 	try {
-		await window.withProgress({ location: ProgressLocation.Notification, title: 'Downloading ProcessingCLI' }, async (progress) => {
-			await mkdir(installRoot, { recursive: true });
+		const installed = await window.withProgress({ location: ProgressLocation.Notification, title: 'Downloading ProcessingCLI' }, async (progress) => {
+			await mkdir(appDir(), { recursive: true });
 			const manifest: Manifest = JSON.parse(await fetchText(`${DOWNLOAD_URL}/latest.json?t=${Date.now()}`));
 			const file = manifest.files[target];
 			if (!file) {
 				throw new Error(`no download for ${target}`);
 			}
 			version = manifest.version;
-			// .zip, or .tar.gz on Linux
-			archive = join(installRoot, basename(file.url));
+			if (existsSync(executable(version))) {
+				if (currentVersion() === version) {
+					return false;
+				}
+				// Another window already downloaded it
+				await writeFile(join(appDir(), 'current'), version);
+				return true;
+			}
+
+			// Per process names, another VS Code window may be downloading at the same time
+			archive = join(installRoot, `${process.pid}-${basename(file.url)}`);
 			const actual = await downloadFile(`${DOWNLOAD_URL}/${file.url}`, archive, (percent) => progress.report({ increment: percent }));
 			if (actual !== file.sha256.toLowerCase()) {
 				throw new Error(`checksum mismatch for ${file.url}`);
 			}
 			progress.report({ message: 'Extracting' });
-			await rm(installDir(), { recursive: true, force: true });
-			await mkdir(installDir(), { recursive: true });
-			await unpack(archive, installDir());
+			partial = join(appDir(), `${version}.${process.pid}.partial`);
+			await rm(partial, { recursive: true, force: true });
+			await mkdir(partial, { recursive: true });
+			await unpack(archive, partial);
+			// Renamed into place once complete, unless another window got there first
+			if (!existsSync(executable(version))) {
+				await rm(join(appDir(), version), { recursive: true, force: true });
+				await rename(partial, join(appDir(), version));
+			}
+			await writeFile(join(appDir(), 'current'), version);
+			return true;
 		});
+		if (!installed) {
+			window.showInformationMessage(`ProcessingCLI ${version} is already the latest version.`);
+			return true;
+		}
 	} catch (error) {
 		window.showErrorMessage(`Could not download ProcessingCLI: ${error instanceof Error ? error.message : error}`);
 		return false;
 	} finally {
-		if (archive) {
-			await rm(archive, { force: true });
+		for (const leftover of [archive, partial]) {
+			if (leftover) {
+				await rm(leftover, { recursive: true, force: true });
+			}
 		}
-		await commands.executeCommand('processing.lsp.start');
 	}
+
+	// Switch this window's language server to the new version, then clear out old ones nothing is using
+	await commands.executeCommand('processing.lsp.stop');
+	await commands.executeCommand('processing.lsp.start');
+	await removeOldVersions(version);
 
 	window.showInformationMessage(`ProcessingCLI ${version} installed.`);
 	return true;
+}
+
+// Versions still in use by a sketch or another window fail to delete, they go on a later update
+async function removeOldVersions(keep: string) {
+	for (const entry of await readdir(appDir())) {
+		if (entry !== keep && entry !== 'current' && !entry.endsWith('.partial')) {
+			await rm(join(appDir(), entry), { recursive: true, force: true }).catch(() => {});
+		}
+	}
 }
 
 function request(url: string, redirects = 5): Promise<IncomingMessage> {
