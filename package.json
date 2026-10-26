@@ -1,6 +1,6 @@
 {
 	"name": "processingcli-vscode",
-	"version": "0.0.0",
+	"version": "1.1.0",
 	"publisher": "konpeki",
 	"displayName": "ProcessingCLI for VS Code",
 	"description": "Run Processing sketches in VS Code with ProcessingCLI. A fork of the Processing Foundation extension with faster, more reliable sketch launching.",
