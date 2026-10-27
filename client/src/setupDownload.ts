@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, existsSync, readFileSync } from 'fs';
-import { mkdir, readdir, rename, rm, writeFile } from 'fs/promises';
+import { cp, mkdir, readdir, rename, rm, writeFile } from 'fs/promises';
 import { IncomingMessage } from 'http';
 import { get } from 'https';
 import { basename, isAbsolute, join } from 'path';
@@ -165,7 +165,7 @@ async function install(): Promise<boolean> {
 			// Renamed into place once complete, unless another window got there first
 			if (!existsSync(executable(version))) {
 				await rm(join(appDir(), version), { recursive: true, force: true });
-				await rename(partial, join(appDir(), version));
+				await move(partial, join(appDir(), version));
 			}
 			await writeFile(join(appDir(), 'current'), version);
 			return true;
@@ -192,6 +192,21 @@ async function install(): Promise<boolean> {
 
 	window.showInformationMessage(`ProcessingCLI ${version} installed.`);
 	return true;
+}
+
+// Antivirus scanning the new files makes Windows refuse to rename the folder for a while,
+// so it retries and then copies instead
+async function move(from: string, to: string) {
+	for (let attempt = 0; attempt < 10; attempt++) {
+		try {
+			await rename(from, to);
+			return;
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+	}
+	await cp(from, to, { recursive: true });
+	await rm(from, { recursive: true, force: true }).catch(() => {});
 }
 
 // Versions still in use by a sketch or another window fail to delete, they go on a later update
