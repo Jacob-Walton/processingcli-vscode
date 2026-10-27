@@ -108,7 +108,9 @@ export function setupPreview(context: ExtensionContext) {
 		restart = setTimeout(reload, 100);
 	});
 
-	context.subscriptions.push(preview, onSave);
+	const toggleStats = commands.registerCommand('processing.preview.stats', () => panel?.webview.postMessage({ type: 'stats' }));
+
+	context.subscriptions.push(preview, onSave, toggleStats);
 }
 
 const reloadSupport = new Map<string, Promise<boolean>>();
@@ -228,6 +230,20 @@ function previewHtml(nonce: string, port: number, token: string) {
 			.stderr {
 				color: var(--vscode-editorError-foreground);
 			}
+
+			#stats {
+				position: absolute;
+				top: 4px;
+				left: 4px;
+				right: 4px;
+				padding: 2px 6px;
+				background: var(--vscode-editorWidget-background);
+				color: var(--vscode-editorWidget-foreground);
+				font-family: var(--vscode-editor-font-family);
+				font-size: 11px;
+				white-space: pre-wrap;
+				pointer-events: none;
+			}
 		</style>
 	</head>
 	<body>
@@ -237,6 +253,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 				<div class="spinner"></div>
 				<div id="message">Starting…</div>
 			</div>
+			<div id="stats" hidden></div>
 		</div>
 		<pre id="log"></pre>
 		<script nonce="${nonce}">
@@ -245,6 +262,10 @@ function previewHtml(nonce: string, port: number, token: string) {
 			const overlayMessage = document.getElementById('message');
 			const log = document.getElementById('log');
 			const stage = document.getElementById('stage');
+			const stats = document.getElementById('stats');
+			// Counted each second for the stats line
+			let counts = { refresh: 0, received: 0, bytes: 0, drawn: 0, missing: 0, dropped: 0, longestGap: 0, uploadMs: 0 };
+			let lastArrival = 0;
 
 			// The last frame stays dimmed underneath while the sketch reloads
 			const show = (text, busy) => {
@@ -310,20 +331,53 @@ function previewHtml(nonce: string, port: number, token: string) {
 			};
 			new ResizeObserver(() => width && fit()).observe(stage);
 
+			// Runs as [count, colour], anything else as [-count, colours...], see Preview.Frames.encode
+			let unpacked = new Uint32Array(0);
+			const unpack = (data, count) => {
+				if (unpacked.length !== count) {
+					unpacked = new Uint32Array(count);
+				}
+				const ints = new Int32Array(data, 16);
+				let from = 0, to = 0;
+				while (from < ints.length && to < count) {
+					const n = ints[from++];
+					if (n > 16) {
+						unpacked.fill(ints[from++], to, to + n);
+						to += n;
+					} else if (n > 0) {
+						// Quicker than fill for short runs, like a gradient's
+						const colour = ints[from++];
+						for (const end = to + n; to < end; to++) {
+							unpacked[to] = colour;
+						}
+					} else {
+						unpacked.set(ints.subarray(from, from - n), to);
+						from -= n;
+						to -= n;
+					}
+				}
+				return new Uint8Array(unpacked.buffer);
+			};
+
 			// Every display refresh: tick so the sketch draws its next frame now, and show the oldest waiting
 			// frame. Oldest, not newest, so a frame that arrives a little late is shown next time instead of skipped
 			const draw = () => {
 				requestAnimationFrame(draw);
+				counts.refresh++;
 				if (socket && socket.readyState === WebSocket.OPEN) {
 					socket.send(TICK);
 				}
 				const next = queue.shift();
 				if (!next) {
+					counts.missing++;
 					return;
 				}
+				const started = performance.now();
 				const frame = new DataView(next.data);
-				const pixelWidth = frame.getInt32(0, true), pixelHeight = frame.getInt32(4, true);
-				const pixels = new Uint8Array(next.data, 16, pixelWidth * pixelHeight * 4);
+				// The top bit of the width marks run-length encoded pixels
+				const packed = frame.getInt32(0, true) < 0;
+				const pixelWidth = frame.getInt32(0, true) & 0x7FFFFFFF, pixelHeight = frame.getInt32(4, true);
+				const pixels = packed ? unpack(next.data, pixelWidth * pixelHeight) : new Uint8Array(next.data, 16, pixelWidth * pixelHeight * 4);
 				if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
 					canvas.width = pixelWidth;
 					canvas.height = pixelHeight;
@@ -338,6 +392,8 @@ function previewHtml(nonce: string, port: number, token: string) {
 					fit();
 				}
 				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+				counts.drawn++;
+				counts.uploadMs += performance.now() - started;
 				if (next.isNew) {
 					hide();
 				}
@@ -353,6 +409,8 @@ function previewHtml(nonce: string, port: number, token: string) {
 				socket.binaryType = 'arraybuffer';
 				socket.onopen = () => {
 					opened = Date.now();
+					// Asks for compressed frames, older ProcessingCLIs ignore it and send raw ones
+					socket.send(new Uint8Array([67]).buffer);
 				};
 				socket.onmessage = (e) => {
 					if (typeof e.data === 'string') {
@@ -360,9 +418,15 @@ function previewHtml(nonce: string, port: number, token: string) {
 						return;
 					}
 					queue.push({ data: e.data, isNew: sendsStatus ? running : opened >= restartedAt });
+					const now = performance.now();
+					counts.received++;
+					counts.bytes += e.data.byteLength;
+					counts.longestGap = Math.max(counts.longestGap, lastArrival ? now - lastArrival : 0);
+					lastArrival = now;
 					// More than two waiting means the preview is falling behind, drop the oldest
 					if (queue.length > 2) {
 						queue.shift();
+						counts.dropped++;
 					}
 				};
 				socket.onerror = () => {};
@@ -383,8 +447,22 @@ function previewHtml(nonce: string, port: number, token: string) {
 				}
 			};
 
+			// Which GPU WebGL is on, a software renderer like SwiftShader means no acceleration
+			const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+			const renderer = gl.getParameter(debugInfo ? debugInfo.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+			setInterval(() => {
+				const c = counts;
+				stats.textContent = c.refresh + ' Hz display, ' + c.received + ' frames received, ' + c.drawn + ' drawn, '
+					+ c.missing + ' refreshes with no frame, ' + c.dropped + ' dropped, ' + (c.bytes / 1e6).toFixed(1) + ' MB/s\\n'
+					+ 'longest gap ' + Math.round(c.longestGap) + ' ms, upload ' + (c.drawn ? (c.uploadMs / c.drawn).toFixed(1) : '-') + ' ms, '
+					+ canvas.width + '×' + canvas.height + ', ' + renderer;
+				counts = { refresh: 0, received: 0, bytes: 0, drawn: 0, missing: 0, dropped: 0, longestGap: 0, uploadMs: 0 };
+			}, 1000);
+
 			addEventListener('message', ({ data: message }) => {
-				if (message.type === 'start') {
+				if (message.type === 'stats') {
+					stats.hidden = !stats.hidden;
+				} else if (message.type === 'start') {
 					restartedAt = Date.now();
 					running = false;
 					show(width ? 'Reloading…' : 'Starting…', true);

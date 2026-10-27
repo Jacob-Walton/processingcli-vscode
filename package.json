@@ -76,6 +76,10 @@
 				"command": "processing.sketch.preview",
 				"title": "Preview the Processing Sketch",
 				"icon": "$(open-preview)"
+			},
+			{
+				"command": "processing.preview.stats",
+				"title": "Toggle Processing Preview Stats"
 			}
 		],
 		"keybindings": [
