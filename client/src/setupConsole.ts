@@ -57,7 +57,7 @@ export default function setupConsole(context: ExtensionContext) {
 		// ProcessingCLI can't export
 		const proc = extraArgs.length > 0
 			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false, windowsHide: true })
-			: spawn(cliPath as string, cliArgs, { shell: false, windowsHide: true });
+			: spawn(cliPath as string, cliArgs, { shell: false, windowsHide: true, env: cleanEnv() });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';
@@ -237,4 +237,15 @@ class ProcessingConsoleViewProvider implements WebviewViewProvider {
 		this.webview = webviewView;
 	}
 
+}
+
+// Some PCs have PATH entries wrapped in quotes, which JOGL can't read and warns about on every P2D sketch
+function cleanEnv() {
+	const env = { ...process.env };
+	for (const key of Object.keys(env)) {
+		if (key.toUpperCase() === 'PATH') {
+			env[key] = env[key]?.replace(/"/g, '');
+		}
+	}
+	return env;
 }
