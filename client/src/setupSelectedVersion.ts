@@ -1,4 +1,5 @@
 import { exec, execFile } from 'child_process';
+import { existsSync } from 'fs';
 import { join } from 'path/posix';
 import { ExtensionContext, workspace, window, Uri, FileType } from 'vscode';
 import { compareVersions } from './compareVersions';
@@ -101,6 +102,7 @@ async function fetchProcessingVersions(context: ExtensionContext) {
 				.split(',')
 				.map(s => s.trim().split("^"))
 				.map(v => ({ path: v[0], version: v[1] }))
+				.filter(v => v.path)
 				// order by semver
 				.sort((a, b) => compareVersions(a.version, b.version))
 				.reverse();
@@ -110,9 +112,35 @@ async function fetchProcessingVersions(context: ExtensionContext) {
 		});
 	}).catch((e) => {
 		console.error(`Error getting Processing versions: ${e}`);
-		window.showErrorMessage(`Error getting Processing versions: ${e}`);
+		return [] as ProcessingVersion[];
 	});
-	return versions;
+	return [...versions, ...await installedVersions(versions)];
+}
+
+// Processing only records where it is once it has run, and uni PCs forget that at every sign out
+const INSTALL_PATHS: Record<string, string[]> = {
+	win32: [
+		`${process.env.ProgramFiles ?? 'C:\\Program Files'}\\Processing\\Processing.exe`,
+		`${process.env.LOCALAPPDATA}\\Programs\\Processing\\Processing.exe`,
+	],
+	darwin: ['/Applications/Processing.app/Contents/MacOS/Processing'],
+	linux: ['/opt/processing/bin/Processing', '/usr/bin/processing'],
+};
+
+async function installedVersions(known: ProcessingVersion[]) {
+	const found: ProcessingVersion[] = [];
+	for (const path of INSTALL_PATHS[process.platform] ?? []) {
+		if (!existsSync(path) || known.some(v => v.path.toLowerCase() === path.toLowerCase())) {
+			continue;
+		}
+		const version = await new Promise<string | undefined>((resolve) => {
+			execFile(path, ['--version'], { encoding: 'utf-8', timeout: 10000, windowsHide: true }, (error, stdout) => resolve(error ? undefined : /\d+\.\d+(\.\d+)?/.exec(stdout)?.[0]));
+		});
+		if (version) {
+			found.push({ path, version });
+		}
+	}
+	return found;
 }
 
 async function getBinaryPathWithPermissions(context: ExtensionContext) {
