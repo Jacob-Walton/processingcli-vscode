@@ -1,4 +1,4 @@
-import { exec, execSync } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { join } from 'path/posix';
 import { ExtensionContext, workspace, window, Uri, FileType } from 'vscode';
 import { compareVersions } from './compareVersions';
@@ -12,7 +12,7 @@ export async function setupSelectedVersion(context: ExtensionContext) {
 		state.selectedVersion = { version, path };
 		selectProcessingVersion(context);
 	} else {
-		await selectProcessingVersion(context);
+		selectProcessingVersion(context);
 	}
 	
 	workspace.onDidChangeConfiguration(async (e) => {
@@ -28,7 +28,7 @@ async function selectProcessingVersion(context: ExtensionContext) {
 	const versions = await fetchProcessingVersions(context);
 
 	if (!versions || versions.length === 0) {
-		await window.showErrorMessage(
+		window.showErrorMessage(
 			`Processing not found, please install Processing 4.4.6 or higher and open it at least once.`
 		);
 		return;
@@ -50,7 +50,10 @@ async function selectProcessingVersion(context: ExtensionContext) {
 				console.warn(`Path (${app.path}) is not a file.`);
 				continue;
 			}
-			const version = execSync(`"${app.path}" --version`, { encoding: 'utf-8' });
+			// execSync would freeze every extension if a broken Processing never answers
+			const version = await new Promise<string>((resolve, reject) => {
+				execFile(app.path, ['--version'], { encoding: 'utf-8', timeout: 10000, windowsHide: true }, (error, stdout) => error ? reject(error) : resolve(stdout));
+			});
 			if (!version || !version.includes(app.version)) {
 				console.warn(`Version (${app.version}) at ${app.path} does not match the expected version.`);
 				continue;
@@ -65,7 +68,7 @@ async function selectProcessingVersion(context: ExtensionContext) {
 	}
 
 	if (!selectedVersion) {
-		await window.showErrorMessage(
+		window.showErrorMessage(
 			`Desired Processing version not found, please install Processing ${desiredVersion} and open it at least once. Found versions: ${versions.map(v => v.version).join(", ")}`
 		);
 		return;
@@ -83,7 +86,7 @@ async function fetchProcessingVersions(context: ExtensionContext) {
 	const binaryPath = await getBinaryPathWithPermissions(context);
 
 	const versions = await new Promise<ProcessingVersion[]>((resolve, reject) => {
-		exec(binaryPath, (error, stdout, stderr) => {
+		exec(binaryPath, { timeout: 30000, windowsHide: true }, (error, stdout, stderr) => {
 			if (error) {
 				reject(error);
 			}

@@ -40,8 +40,8 @@ export async function activate(context: ExtensionContext) {
 	setupPreview(context);
 	setupLanguageServer(context);
 
-	// Set up the selected Processing version, awaiting because we don't want to continue until we have a version
-	await setupSelectedVersion(context);
+	// Only the sidebar and exporting use Processing, so don't wait for it. A broken install can take a while
+	setupSelectedVersion(context);
 	setupCommands(context);
 	setupSidebar(context);
 	setupDecorators(context);
