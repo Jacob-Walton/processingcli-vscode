@@ -6,50 +6,6 @@ on:
 
 jobs:
   release:
-    types: [published]
-
-jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            suffix: linux
-          - os: macOS-latest
-            suffix: darwin
-          - os: windows-latest
-            suffix: win32
-      fail-fast: false
-    name: ${{ matrix.os }}
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v7
-
-      - name: Go to install-locator
-        run: cd install-locator
-
-      - name: Install Java
-        uses: actions/setup-java@v6
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          architecture: 'x64'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Build Locator
-        run: ./install-locator/gradlew runtime -p install-locator
-
-      - name: Upload result
-        uses: actions/upload-artifact@v7
-        with:
-          name: install-locator-${{ matrix.suffix }}
-          path: install-locator/build/image
-          retention-days: 1
-
-  release:
     runs-on: ubuntu-latest
 
     permissions:
@@ -84,8 +40,7 @@ jobs:
           file: '*.vsix'
           tag: ${{ github.ref }}
           file_glob: true
-          
-    
+
       - name: Publish Extension
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
