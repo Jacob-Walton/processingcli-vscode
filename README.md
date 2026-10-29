@@ -15,7 +15,7 @@ It is not made or endorsed by the Processing Foundation.
 ### Prerequisites
 
 - Uninstall the Processing Foundation extension and any other Processing extensions. They conflict with this one.
-- You don't need Java or Processing installed to run sketches, see errors, or get hover docs and code completion. The sketchbook sidebar and exporting still use **Processing 4.4.6 or later** ([Download Processing](https://processing.org)). Run it once after installing so it creates the files the extension needs.
+- You don't need Java or Processing installed. Everything runs through ProcessingCLI, which the extension downloads.
 
 ### Installation
 
@@ -38,24 +38,18 @@ Open Settings (`Ctrl + ,`, or `Cmd + ,` on macOS) and search for "Processing".
 - `processing.cliPath`: Full path to your own ProcessingCLI executable. Leave it empty to use the downloaded one.
 - `processing.autosave`: Saves your sketch before running it. Default: `true`.
 - `processing.newWindow`: Opens sketches in a new VS Code window. If disabled, sketches open in the current window. Default: `true`.
-- `processing.version`: Which installed Processing version to use for code suggestions, the sidebar and exporting. Default: `latest`, or give a version such as `4.4.6`.
+- `processing.sketchbook`: Folder for your sketches and libraries. Leave it empty to use Processing's sketchbook, or `Documents/Processing`.
+- `processing.terminalPath`: Puts ProcessingCLI on the `PATH` in VS Code's terminals, so you can run `ProcessingCLI .` in a sketch folder. Default: `true`.
 
 ## Known Issues
 
 * Some Processing constants (like `PI`, `RGB`, `DEGREES`) are not highlighted.
-* The extension includes a bundled JDK for macOS, Windows and Linux, used to find your Processing installation. This makes the extension larger.
 
 ## Troubleshooting
 
 If a sketch won't run, run **Download ProcessingCLI** again.
 
-If code suggestions or the sidebar don't work:
-
-* Close VS Code
-* Remove any other Processing extensions
-* Install the latest version of Processing (4.4.6 or later) and run it once
-
-Then reopen VS Code. If you still have problems, open an issue on [GitHub](https://github.com/Jacob-Walton/processingcli-vscode/issues).
+If code suggestions don't work, remove any other Processing extensions and restart VS Code. If you still have problems, open an issue on [GitHub](https://github.com/Jacob-Walton/processingcli-vscode/issues).
 
 ## License
 

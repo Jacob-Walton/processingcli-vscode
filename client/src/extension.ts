@@ -9,6 +9,7 @@ import { setupPDEFiles } from './setupPDEFiles';
 import setupConsole from './setupConsole';
 import { setupDownload } from './setupDownload';
 import { setupPreview } from './setupPreview';
+import { setupTerminal } from './setupTerminal';
 
 
 export function activate(context: ExtensionContext) {
@@ -21,6 +22,7 @@ export function activate(context: ExtensionContext) {
 	setupConsole(context);
 	setupPreview(context);
 	setupLanguageServer(context);
+	setupTerminal(context);
 	setupCommands(context);
 	setupSidebar(context);
 	setupDecorators(context);

@@ -189,6 +189,7 @@ async function install(): Promise<boolean> {
 	// Switch this window's language server to the new version, then clear out old ones nothing is using
 	await commands.executeCommand('processing.lsp.stop');
 	await commands.executeCommand('processing.lsp.start');
+	await commands.executeCommand('processing.terminal.update');
 	await removeOldVersions(version);
 
 	window.showInformationMessage(`ProcessingCLI ${version} installed.`);

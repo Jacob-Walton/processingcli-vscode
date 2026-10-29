@@ -1,1 +1,1 @@
-{"root":["./src/extension.ts","./src/killTree.ts","./src/setupCommands.ts","./src/setupConsole.ts","./src/setupDecorators.ts","./src/setupDownload.ts","./src/setupLanguageServer.ts","./src/setupPDEFiles.ts","./src/setupPreview.ts","./src/setupSidebar.ts"],"version":"5.8.3"}
+{"root":["./src/extension.ts","./src/killTree.ts","./src/setupCommands.ts","./src/setupConsole.ts","./src/setupDecorators.ts","./src/setupDownload.ts","./src/setupLanguageServer.ts","./src/setupPDEFiles.ts","./src/setupPreview.ts","./src/setupSidebar.ts","./src/setupTerminal.ts"],"version":"5.8.3"}

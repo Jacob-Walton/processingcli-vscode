@@ -162,6 +162,12 @@
 					"default": "",
 					"description": "Folder of your sketches and libraries. Leave empty to use Processing's sketchbook, or Documents/Processing."
 				},
+				"processing.terminalPath": {
+					"scope": "machine",
+					"type": "boolean",
+					"default": true,
+					"description": "Put ProcessingCLI on the PATH in VS Code's terminals."
+				},
 				"processing.autosave": {
 					"scope": "window",
 					"type": "boolean",
