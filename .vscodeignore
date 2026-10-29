@@ -16,5 +16,3 @@ contributing.md
 **/node_modules/**
 client/out/**
 !client/out/extension.js
-
-install-locator

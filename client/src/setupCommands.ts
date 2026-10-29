@@ -1,5 +1,6 @@
 import { basename, join } from 'path';
 import { ExtensionContext, commands, Uri, window, workspace } from 'vscode';
+import { sketchbookDir } from './setupSidebar';
 
 export function setupCommands(context: ExtensionContext) {
 	const openSketch = commands.registerCommand('processing.sketch.open', async (folder: string, isReadOnly: boolean) => {
@@ -65,9 +66,7 @@ export function setupCommands(context: ExtensionContext) {
 			canSelectFolders: true,
 			canSelectMany: false,
 			title: "Select a folder to create a new sketch in",
-			defaultUri: workspace.workspaceFolders && workspace.workspaceFolders[0]
-				? Uri.joinPath(workspace.workspaceFolders[0].uri, '..')
-				: undefined,
+			defaultUri: Uri.file(sketchbookDir()),
 		});
 		if (!folder || folder.length === 0) {
 			return;

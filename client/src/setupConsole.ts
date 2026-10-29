@@ -1,9 +1,9 @@
 import { ChildProcess, spawn } from 'child_process';
-import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, WebviewViewResolveContext, window, workspace } from 'vscode';
-import { state } from './extension';
+import { commands, ExtensionContext, Uri, WebviewView, WebviewViewProvider, window, workspace } from 'vscode';
 import { dirname } from 'path';
 import { killTree } from './killTree';
 import { ensureCli } from './setupDownload';
+import { sketchbookDir } from './setupSidebar';
 
 export default function setupConsole(context: ExtensionContext) {
 	const sketchProcesses: ChildProcess[] = [];
@@ -36,13 +36,8 @@ export default function setupConsole(context: ExtensionContext) {
 			extraArgs.push(...extraArguments);
 		}
 
-		const cliPath = extraArgs.length === 0 ? await ensureCli() : undefined;
-		if (extraArgs.length === 0 && !cliPath) {
-			return;
-		}
-
-		if (extraArgs.length > 0 && !state.selectedVersion) {
-			window.showErrorMessage('Exporting needs Processing 4.4.6 or higher installed.');
+		const cliPath = await ensureCli();
+		if (!cliPath) {
 			return;
 		}
 
@@ -53,11 +48,10 @@ export default function setupConsole(context: ExtensionContext) {
 		commands.executeCommand('processing.sketch.stop');
 
 		const sketchFolder = dirname(resource.fsPath);
-		const cliArgs = preview === undefined ? [sketchFolder] : [`--preview=${preview}`, sketchFolder];
-		// ProcessingCLI can't export
-		const proc = extraArgs.length > 0
-			? spawn(state.selectedVersion.path, ['cli', `--sketch=${sketchFolder}`, ...extraArgs, '--run'], { shell: false, windowsHide: true })
-			: spawn(cliPath as string, cliArgs, { shell: false, windowsHide: true, env: cleanEnv() });
+		const cliArgs = preview === undefined ? [...extraArgs, sketchFolder] : [`--preview=${preview}`, sketchFolder];
+		// Same sketchbook as the sidebar
+		const env = { ...cleanEnv(), PCLI_SKETCHBOOK: sketchbookDir() };
+		const proc = spawn(cliPath, cliArgs, { shell: false, windowsHide: true, env });
 
 		// Line buffering to avoid fragmenting output across multiple timestamps
 		let stdoutBuffer = '';
@@ -117,8 +111,16 @@ export default function setupConsole(context: ExtensionContext) {
 		Promise.all(sketchProcesses.map((proc) => killTree(proc.pid as number)))
 	);
 
-	const buildSketch = commands.registerCommand('processing.sketch.export', () => {
-		commands.executeCommand('processing.sketch.run', undefined, ['--export']);
+	const buildSketch = commands.registerCommand('processing.sketch.export', async () => {
+		const proc: ChildProcess | undefined = await commands.executeCommand('processing.sketch.run', undefined, ['--export']);
+		let output = '';
+		proc?.stdout?.on('data', (data) => output += data);
+		proc?.on('close', async () => {
+			const folder = /Exported to (.+)/.exec(output)?.[1].trim();
+			if (folder && await window.showInformationMessage('Sketch exported.', 'Open Folder') === 'Open Folder') {
+				commands.executeCommand('revealFileInOS', Uri.file(folder));
+			}
+		});
 	});
 
 
@@ -137,7 +139,7 @@ export default function setupConsole(context: ExtensionContext) {
 class ProcessingConsoleViewProvider implements WebviewViewProvider {
 	public webview?: WebviewView;
 
-	public resolveWebviewView(webviewView: WebviewView, context: WebviewViewResolveContext): Thenable<void> | void {
+	public resolveWebviewView(webviewView: WebviewView): Thenable<void> | void {
 		webviewView.webview.options = { enableScripts: true };
 		webviewView.webview.html = `
 				<!DOCTYPE html>
@@ -239,7 +241,7 @@ class ProcessingConsoleViewProvider implements WebviewViewProvider {
 
 }
 
-// Some PCs have PATH entries wrapped in quotes, which JOGL can't read and warns about on every P2D sketch
+// JOGL warns about quoted PATH entries
 function cleanEnv() {
 	const env = { ...process.env };
 	for (const key of Object.keys(env)) {

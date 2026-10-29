@@ -1,159 +1,105 @@
-import { spawn } from 'child_process';
-import { join } from 'path';
-import { Event, EventEmitter, ExtensionContext, ProviderResult, TreeDataProvider, TreeItem, TreeItemCollapsibleState, window } from 'vscode';
-import { state } from './extension';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { homedir } from 'os';
+import { basename, dirname, join } from 'path';
+import { EventEmitter, ExtensionContext, TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri, window, workspace } from 'vscode';
+import { ensureExamples } from './setupDownload';
 
+export function setupSidebar(context: ExtensionContext) {
+	const sketchbook = new SketchTree(() => folders(sketchbookDir()), false);
+	const examples = new SketchTree(async () => {
+		const core = await ensureExamples();
+		// Libraries keep theirs in libraries/<name>/examples
+		const libraries = folders(join(sketchbookDir(), 'libraries'), true).map((lib) => join(lib, 'examples'));
+		return [...(core ? folders(core) : []), ...libraries.filter(existsSync)];
+	}, true);
 
-export interface Sketch {
-	type?: "sketch";
-	name: string;
-	path: string;
-	mode?: string;
+	const sketchbookView = window.createTreeView('processingSidebarSketchbookView', { treeDataProvider: sketchbook });
+	const examplesView = window.createTreeView('processingSidebarExamplesView', { treeDataProvider: examples });
+	// Sketches made outside VS Code
+	sketchbookView.onDidChangeVisibility((e) => e.visible && sketchbook.refresh());
+	context.subscriptions.push(sketchbookView, examplesView);
 }
 
-export interface Folder {
-	type?: "folder";
-	name: string;
-	path: string;
-	mode?: string;
-	children?: Folder[];
-	sketches?: Sketch[];
-}
-
-export async function setupSidebar(context: ExtensionContext) {
-	// TODO: Show welcome screens whilst we are starting Processing
-
-	setupSketchTreeView('sketchbook list', 'processingSidebarSketchbookView', context);
-	setupSketchTreeView('contributions examples list', 'processingSidebarExamplesView', context, true);
-}
-
-function setupSketchTreeView(command: string, viewId: string, context: ExtensionContext, readonly = false) {
-	const provider = new ProcessingWindowDataProvider(command, context, readonly);
-	window.createTreeView(viewId, { treeDataProvider: provider });
-}
-
-
-class ProcessingWindowDataProvider implements TreeDataProvider<FolderTreeItem | SketchTreeItem> {
-	constructor(
-		public readonly command: string,
-		public readonly context: ExtensionContext,
-		public readonly readonly = false
-	) {
-		this.cached();
-		this.populate();
-		this.listen();
+// Setting, then Processing's preference, then its default
+export function sketchbookDir() {
+	const configured = workspace.getConfiguration('processing').get<string>('sketchbook', '');
+	if (configured) {
+		return configured;
 	}
-	private _folders: Folder[] = [];
-
-	private _onDidChangeTreeData: EventEmitter<null> = new EventEmitter<null>();
-	readonly onDidChangeTreeData: Event<null> = this._onDidChangeTreeData.event;
-
-	async listen() {
-		state.onDidVersionChange.on(null, async () => {
-			this.populate();
-		});
-	}
-
-	async cached() {
-		const data = await this.context.globalState.get<string>(`processing-tree-view-${this.command}-cache`);
-		if (data) {
-			try {
-				this._folders = JSON.parse(data) as Folder[];
-			} catch (e) {
-				console.error(`Error parsing cached JSON: ${e}`);
-			}
+	const preferences = process.platform === 'win32'
+		? join(process.env.APPDATA ?? '', 'Processing', 'preferences.txt')
+		: process.platform === 'darwin'
+			? join(homedir(), 'Library', 'Processing', 'preferences.txt')
+			: join(homedir(), '.config', 'processing', 'preferences.txt');
+	try {
+		const path = /^sketchbook\.path\.four=(.+)$/m.exec(readFileSync(preferences, 'utf8'))?.[1].trim();
+		if (path) {
+			return path;
 		}
-		this._onDidChangeTreeData.fire(null);
+	} catch {
+		// Processing has never run here
+	}
+	if (process.platform === 'linux') {
+		return join(homedir(), 'sketchbook');
+	}
+	// Windows often moves Documents into OneDrive
+	const documents = [process.env.OneDrive ? join(process.env.OneDrive, 'Documents') : '', join(homedir(), 'Documents')];
+	return join(documents.find((d) => d && existsSync(join(d, 'Processing'))) ?? join(homedir(), 'Documents'), 'Processing');
+}
+
+// In the sketchbook but not sketches
+const SKIPPED = new Set(['libraries', 'modes', 'tools', 'templates']);
+
+function folders(dir: string, all = false) {
+	try {
+		return readdirSync(dir, { withFileTypes: true })
+			.filter((e) => e.isDirectory() && !e.name.startsWith('.') && (all || !SKIPPED.has(e.name)))
+			.map((e) => join(dir, e.name));
+	} catch {
+		return [];
+	}
+}
+
+function isSketch(dir: string) {
+	return existsSync(join(dir, `${basename(dir)}.pde`));
+}
+
+function containsSketch(dir: string, depth: number): boolean {
+	return isSketch(dir) || (depth > 0 && folders(dir).some((d) => containsSketch(d, depth - 1)));
+}
+
+// Folder paths, sketches first
+class SketchTree implements TreeDataProvider<string> {
+	private readonly changed = new EventEmitter<void>();
+	readonly onDidChangeTreeData = this.changed.event;
+
+	constructor(private readonly roots: () => string[] | Promise<string[]>, private readonly readonly: boolean) {}
+
+	refresh() {
+		this.changed.fire();
 	}
 
-	async populate() {
-		this._folders = await this.grabSketches();
-		this._onDidChangeTreeData.fire(null);
+	async getChildren(dir?: string) {
+		const dirs = dir ? folders(dir) : await this.roots();
+		return dirs
+			.filter((d) => containsSketch(d, 3))
+			.sort((a, b) => Number(isSketch(b)) - Number(isSketch(a)) || label(a).localeCompare(label(b)));
 	}
 
-
-	getTreeItem(element: FolderTreeItem): TreeItem | Thenable<TreeItem> {
-		return element;
-	}
-	getChildren(element?: FolderTreeItem): ProviderResult<(FolderTreeItem | SketchTreeItem)[]> {
-		if (element === undefined) {
-			return this._folders.map((folder) => new FolderTreeItem(folder)) ?? [];
-		} else {
-			const sketches = element.folder.sketches?.map((sketch) => {
-				return new SketchTreeItem(sketch, this.readonly);
-			}) ?? [];
-			const folders = element.folder.children?.map((folder) => {
-				return new FolderTreeItem(folder);
-			}) ?? [];
-
-			// Sort sketches and folders
-			sketches.sort((a, b) => a.sketch.name.localeCompare(b.sketch.name));
-			folders.sort((a, b) => a.folder.name.localeCompare(b.folder.name));
-
-			return [...sketches, ...folders];
+	getTreeItem(dir: string) {
+		if (!isSketch(dir)) {
+			return new TreeItem(label(dir), TreeItemCollapsibleState.Collapsed);
 		}
-	}
-
-	grabSketches(): Promise<Folder[]> {
-		return new Promise<Folder[]>((resolve) => {
-			const process = spawn(state.selectedVersion.path, this.command.split(' '), { windowsHide: true });
-			let data = '';
-			process.stdout.on('data', (chunk) => {
-				data += chunk;
-			});
-			process.on('close', (code) => {
-				if (code !== 0) {
-					console.error(`Process exited with code ${code}`);
-					resolve([]);
-					return;
-				}
-				try {
-					this.context.globalState.update(`processing-tree-view-${this.command}-cache`, data);
-					const folders = JSON.parse(data) as Folder[];
-					
-					resolve(folders);
-				} catch (e) {
-					console.error(`Error parsing JSON: ${e}`);
-					resolve([]);
-				}
-			});
-		});
+		const item = new TreeItem(label(dir), TreeItemCollapsibleState.None);
+		item.tooltip = dir;
+		const preview = join(dir, `${basename(dir)}.png`);
+		item.iconPath = Uri.file(existsSync(preview) ? preview : join(__dirname, '..', '..', 'media', 'processing-flat-color.svg'));
+		item.command = { command: 'processing.sketch.open', title: 'Open Sketch', arguments: [dir, this.readonly] };
+		return item;
 	}
 }
 
-class FolderTreeItem extends TreeItem {
-	constructor(
-		public readonly folder: Folder
-	) {
-		const label = folder.name;
-		super(label, TreeItemCollapsibleState.Collapsed);
-		this.tooltip = `${this.label}`;
-	}
+// Named after the library
+function label(dir: string) {
+	return basename(dir) === 'examples' ? basename(dirname(dir)) : basename(dir);
 }
-
-class SketchTreeItem extends TreeItem {
-	constructor(
-		public readonly sketch: Sketch,
-		public readonly readonly = false
-	) {
-		const label = sketch.name;
-		super(label, TreeItemCollapsibleState.None);
-		this.tooltip = `${this.label}`;
-		this.iconPath = join(__dirname, "..", "..", "media/processing-flat-color.svg");
-		this.command = {
-			command: 'processing.sketch.open',
-			title: 'Open Sketch',
-			arguments: [this.sketch.path, this.readonly]
-		};
-		// TODO: add right-click menu to open in new window, open containing folder, etc.
-
-		// TODO: Make showing a preview a toggleable setting
-		const preview = `${sketch.path}/${sketch.name}.png`;
-		if (existsSync(preview)) {
-			this.iconPath = preview;
-		}
-	}
-}
-
-

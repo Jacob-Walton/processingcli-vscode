@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { join } from 'path';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- tree-kill uses export =
 import treeKill = require('tree-kill');
 
 // tree-kill runs taskkill through a shell, which flashes a console window when VS Code starts it

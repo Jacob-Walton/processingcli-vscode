@@ -263,7 +263,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 			const log = document.getElementById('log');
 			const stage = document.getElementById('stage');
 			const stats = document.getElementById('stats');
-			// Counted each second for the stats line
+			// Per second
 			let counts = { refresh: 0, received: 0, bytes: 0, drawn: 0, missing: 0, dropped: 0, longestGap: 0, uploadMs: 0 };
 			let lastArrival = 0;
 
@@ -331,7 +331,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 			};
 			new ResizeObserver(() => width && fit()).observe(stage);
 
-			// Runs as [count, colour], anything else as [-count, colours...], see Preview.Frames.encode
+			// See Preview.Frames.encode
 			let unpacked = new Uint32Array(0);
 			const unpack = (data, count) => {
 				if (unpacked.length !== count) {
@@ -345,7 +345,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 						unpacked.fill(ints[from++], to, to + n);
 						to += n;
 					} else if (n > 0) {
-						// Quicker than fill for short runs, like a gradient's
+						// Quicker than fill for short runs
 						const colour = ints[from++];
 						for (const end = to + n; to < end; to++) {
 							unpacked[to] = colour;
@@ -374,7 +374,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 				}
 				const started = performance.now();
 				const frame = new DataView(next.data);
-				// The top bit of the width marks run-length encoded pixels
+				// Top bit of the width means encoded
 				const packed = frame.getInt32(0, true) < 0;
 				const pixelWidth = frame.getInt32(0, true) & 0x7FFFFFFF, pixelHeight = frame.getInt32(4, true);
 				const pixels = packed ? unpack(next.data, pixelWidth * pixelHeight) : new Uint8Array(next.data, 16, pixelWidth * pixelHeight * 4);
@@ -409,7 +409,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 				socket.binaryType = 'arraybuffer';
 				socket.onopen = () => {
 					opened = Date.now();
-					// Asks for compressed frames, older ProcessingCLIs ignore it and send raw ones
+					// Ask for encoded frames, older ProcessingCLIs ignore it
 					socket.send(new Uint8Array([67]).buffer);
 				};
 				socket.onmessage = (e) => {
@@ -447,7 +447,7 @@ function previewHtml(nonce: string, port: number, token: string) {
 				}
 			};
 
-			// Which GPU WebGL is on, a software renderer like SwiftShader means no acceleration
+			// SwiftShader means no GPU
 			const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
 			const renderer = gl.getParameter(debugInfo ? debugInfo.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
 			setInterval(() => {

@@ -137,7 +137,8 @@ async function install(): Promise<boolean> {
 		const installed = await window.withProgress({ location: ProgressLocation.Notification, title: 'Downloading ProcessingCLI' }, async (progress) => {
 			await mkdir(appDir(), { recursive: true });
 			const manifest: Manifest = JSON.parse(await fetchText(`${DOWNLOAD_URL}/latest.json?t=${Date.now()}`));
-			const file = manifest.files[target];
+			// x64 under emulation, JOGL has no Windows ARM natives
+			const file = manifest.files[target] ?? (target === 'windows-arm64' ? manifest.files['windows-x64'] : undefined);
 			if (!file) {
 				throw new Error(`no download for ${target}`);
 			}
@@ -194,8 +195,7 @@ async function install(): Promise<boolean> {
 	return true;
 }
 
-// Antivirus scanning the new files makes Windows refuse to rename the folder for a while,
-// so it retries and then copies instead
+// Antivirus can lock the new folder for a while
 async function move(from: string, to: string) {
 	for (let attempt = 0; attempt < 10; attempt++) {
 		try {
@@ -257,14 +257,49 @@ async function downloadFile(url: string, dest: string, onProgress: (percent: num
 	return hash.digest('hex');
 }
 
-// Tools every install of each OS has, by absolute path
+// Built-in tools by absolute path, ditto keeps the app signed
 function unpack(archive: string, dest: string) {
-	const [command, args] = process.platform === 'win32'
-		? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', archive, '-C', dest]]
-		: process.platform === 'darwin'
-			? ['/usr/bin/ditto', ['-x', '-k', archive, dest]]
-			: [existsSync('/usr/bin/tar') ? '/usr/bin/tar' : '/bin/tar', ['-xzf', archive, '-C', dest]];
+	const tar = process.platform === 'win32'
+		? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+		: existsSync('/usr/bin/tar') ? '/usr/bin/tar' : '/bin/tar';
+	const [command, args] = process.platform === 'darwin' && archive.endsWith('.zip')
+		? ['/usr/bin/ditto', ['-x', '-k', archive, dest]]
+		: [tar, ['-xf', archive, '-C', dest]];
 	return new Promise<void>((resolve, reject) => {
 		execFile(command, args, { windowsHide: true }, (error) => error ? reject(error) : resolve());
 	});
+}
+
+// From GitHub, they have no license to bundle
+const EXAMPLES_URL = 'https://codeload.github.com/processing/processing-examples/tar.gz/refs/heads/main';
+let downloadingExamples: Promise<string | undefined> | undefined;
+
+export function examplesDir() {
+	return join(installRoot, 'examples', 'processing-examples-main');
+}
+
+export function ensureExamples() {
+	if (existsSync(examplesDir())) {
+		return Promise.resolve(examplesDir());
+	}
+	downloadingExamples ??= Promise.resolve(window.withProgress({ location: ProgressLocation.Notification, title: 'Downloading Processing examples' }, async () => {
+		const archive = join(installRoot, `${process.pid}-examples.tar.gz`);
+		const partial = join(installRoot, `examples.${process.pid}.partial`);
+		try {
+			await mkdir(partial, { recursive: true });
+			await downloadFile(EXAMPLES_URL, archive, () => {});
+			await unpack(archive, partial);
+			await rm(join(installRoot, 'examples'), { recursive: true, force: true });
+			await move(partial, join(installRoot, 'examples'));
+			return examplesDir();
+		} catch (error) {
+			window.showErrorMessage(`Could not download the examples: ${error instanceof Error ? error.message : error}`);
+			return undefined;
+		} finally {
+			await rm(archive, { force: true });
+			await rm(partial, { recursive: true, force: true });
+			downloadingExamples = undefined;
+		}
+	}));
+	return downloadingExamples;
 }

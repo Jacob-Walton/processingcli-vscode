@@ -3,11 +3,10 @@ import { dirname, join } from 'path';
 import { commands, ConfigurationTarget, ExtensionContext, extensions, workspace } from 'vscode';
 import { ExecutableOptions, LanguageClient } from 'vscode-languageclient/node';
 import { cliPath } from './setupDownload';
+import { sketchbookDir } from './setupSidebar';
 
 // .java tabs too, the server ignores .java files that aren't in a sketch folder
 const documentSelector = [{ scheme: 'file', language: 'Processing' }, { scheme: 'file', language: 'java' }];
-// Not in the type, but passed through to spawn. Stops a console window flashing up on Windows
-const options = { windowsHide: true } as unknown as ExecutableOptions;
 
 // ProcessingCLI's language server: errors, hover docs, completion and go to definition
 export function setupLanguageServer(context: ExtensionContext) {
@@ -18,6 +17,8 @@ export function setupLanguageServer(context: ExtensionContext) {
 		if (client || !existsSync(path)) {
 			return;
 		}
+		// windowsHide isn't in the type, stops a console flashing up
+		const options = { windowsHide: true, env: { ...process.env, PCLI_SKETCHBOOK: sketchbookDir() } } as unknown as ExecutableOptions;
 		client = new LanguageClient('processingCli', 'ProcessingCLI Language Server', { command: path, args: ['lsp'], options }, { documentSelector });
 		shareJar(path);
 		await client.start();
