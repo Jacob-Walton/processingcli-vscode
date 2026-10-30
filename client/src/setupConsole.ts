@@ -242,7 +242,7 @@ class ProcessingConsoleViewProvider implements WebviewViewProvider {
 }
 
 // JOGL warns about quoted PATH entries
-function cleanEnv() {
+export function cleanEnv() {
 	const env = { ...process.env };
 	for (const key of Object.keys(env)) {
 		if (key.toUpperCase() === 'PATH') {

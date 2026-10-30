@@ -35,7 +35,9 @@
 	},
 	"activationEvents": [
 		"onStartupFinished",
-		"workspaceContains:**/*.pde"
+		"workspaceContains:**/*.pde",
+		"onDebugResolve:processing",
+		"onDebugDynamicConfigurations:processing"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
@@ -80,6 +82,11 @@
 			{
 				"command": "processing.preview.stats",
 				"title": "Toggle Processing Preview Stats"
+			},
+			{
+				"command": "processing.sketch.debug",
+				"title": "Debug the Processing Sketch",
+				"icon": "$(debug-alt)"
 			}
 		],
 		"keybindings": [
@@ -101,6 +108,11 @@
 			"editor/title": [
 				{
 					"command": "processing.sketch.preview",
+					"when": "editorLangId == Processing || editorLangId == java",
+					"group": "navigation"
+				},
+				{
+					"command": "processing.sketch.debug",
 					"when": "editorLangId == Processing || editorLangId == java",
 					"group": "navigation"
 				},
@@ -240,6 +252,56 @@
 				"language": "Processing",
 				"scopeName": "source.pde",
 				"path": "./syntaxes/processing.tmGrammar.json"
+			}
+		],
+		"breakpoints": [
+			{
+				"language": "Processing"
+			},
+			{
+				"language": "java"
+			}
+		],
+		"debuggers": [
+			{
+				"type": "processing",
+				"label": "Processing",
+				"languages": [
+					"Processing"
+				],
+				"configurationAttributes": {
+					"launch": {
+						"required": [
+							"sketch"
+						],
+						"properties": {
+							"sketch": {
+								"type": "string",
+								"description": "Sketch folder",
+								"default": "${fileDirname}"
+							}
+						}
+					}
+				},
+				"initialConfigurations": [
+					{
+						"type": "processing",
+						"request": "launch",
+						"name": "Debug sketch",
+						"sketch": "${fileDirname}"
+					}
+				],
+				"configurationSnippets": [
+					{
+						"label": "Processing: Debug sketch",
+						"body": {
+							"type": "processing",
+							"request": "launch",
+							"name": "Debug sketch",
+							"sketch": "^\"\\${fileDirname}\""
+						}
+					}
+				]
 			}
 		]
 	},

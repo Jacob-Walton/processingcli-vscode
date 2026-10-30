@@ -10,6 +10,7 @@ import setupConsole from './setupConsole';
 import { setupDownload } from './setupDownload';
 import { setupPreview } from './setupPreview';
 import { setupTerminal } from './setupTerminal';
+import { setupDebug } from './setupDebug';
 
 
 export function activate(context: ExtensionContext) {
@@ -23,6 +24,7 @@ export function activate(context: ExtensionContext) {
 	setupPreview(context);
 	setupLanguageServer(context);
 	setupTerminal(context);
+	setupDebug(context);
 	setupCommands(context);
 	setupSidebar(context);
 	setupDecorators(context);
