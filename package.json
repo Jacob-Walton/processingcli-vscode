@@ -279,6 +279,11 @@
 								"type": "string",
 								"description": "Sketch folder",
 								"default": "${fileDirname}"
+							},
+							"preview": {
+								"type": "boolean",
+								"description": "Set to false to debug in a window when the preview is open",
+								"default": false
 							}
 						}
 					}

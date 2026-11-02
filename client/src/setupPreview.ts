@@ -1,9 +1,9 @@
 import { ChildProcess, execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { AddressInfo, createServer } from 'net';
-import { basename, dirname } from 'path';
+import { basename, dirname, resolve } from 'path';
 import { killTree } from './killTree';
-import { commands, ExtensionContext, Uri, ViewColumn, WebviewPanel, window, workspace } from 'vscode';
+import { commands, debug, DebugSession, ExtensionContext, Uri, ViewColumn, WebviewPanel, window, workspace } from 'vscode';
 import { cliPath } from './setupDownload';
 
 export function setupPreview(context: ExtensionContext) {
@@ -13,13 +13,11 @@ export function setupPreview(context: ExtensionContext) {
 	let restart: NodeJS.Timeout | undefined;
 	// ProcessingCLI serves frames on this port, the webview connects to it directly
 	let address = '';
+	// Debugging the sketch in the preview
+	let session: DebugSession | undefined;
 
-	const start = async () => {
-		if (!panel || !sketchFile) {
-			return;
-		}
-		panel.webview.postMessage({ type: 'start' });
-		// The new ProcessingCLI binds the same port, so the old one has to be gone first
+	// The new ProcessingCLI binds the same port, so the old one has to be gone first
+	const stopCurrent = async () => {
 		const previous = current;
 		current = undefined;
 		if (previous?.pid && previous.exitCode === null) {
@@ -28,6 +26,14 @@ export function setupPreview(context: ExtensionContext) {
 				killTree(previous.pid),
 			]);
 		}
+	};
+
+	const start = async () => {
+		if (!panel || !sketchFile) {
+			return;
+		}
+		panel.webview.postMessage({ type: 'start' });
+		await stopCurrent();
 		const proc = await commands.executeCommand<ChildProcess | undefined>('processing.sketch.run', sketchFile, undefined, address);
 		current = proc;
 		if (!proc) {
@@ -55,6 +61,11 @@ export function setupPreview(context: ExtensionContext) {
 
 	// Newer ProcessingCLIs reload the sketch in the same JVM, much faster than starting a new one
 	const reload = async () => {
+		if (session) {
+			panel?.webview.postMessage({ type: 'start' });
+			session.customRequest('reload');
+			return;
+		}
 		const proc = current;
 		if (panel && proc?.stdin?.writable && proc.exitCode === null && await supportsReload(cliPath())) {
 			panel.webview.postMessage({ type: 'start' });
@@ -85,6 +96,9 @@ export function setupPreview(context: ExtensionContext) {
 			panel.webview.html = previewHtml(randomBytes(16).toString('base64'), port, token);
 			panel.onDidDispose(() => {
 				panel = undefined;
+				if (session) {
+					debug.stopDebugging(session);
+				}
 				if (current?.pid) {
 					killTree(current.pid);
 				}
@@ -110,25 +124,78 @@ export function setupPreview(context: ExtensionContext) {
 
 	const toggleStats = commands.registerCommand('processing.preview.stats', () => panel?.webview.postMessage({ type: 'stats' }));
 
-	context.subscriptions.push(preview, onSave, toggleStats);
+	// Where the debugger runs the sketch
+	const debugTarget = commands.registerCommand('processing.preview.debugTarget', async (sketch: string) => {
+		if (!panel || !sketchFile || resolve(dirname(sketchFile.fsPath)) !== resolve(sketch) || !(await supportsDebug(cliPath()))) {
+			return undefined;
+		}
+		panel.webview.postMessage({ type: 'start' });
+		await stopCurrent();
+		return address;
+	});
+
+	const debugging = [
+		debug.onDidStartDebugSession((started) => {
+			if (panel && started.type === 'processing' && started.configuration.preview === address) {
+				session = started;
+			}
+		}),
+		debug.onDidTerminateDebugSession((ended) => {
+			if (ended === session) {
+				session = undefined;
+				panel?.webview.postMessage({ type: 'stopped', error: false });
+			}
+		}),
+		// Output in the preview log too
+		debug.registerDebugAdapterTrackerFactory('processing', {
+			createDebugAdapterTracker(tracked) {
+				if (!address || tracked.configuration.preview !== address) {
+					return undefined;
+				}
+				return {
+					onDidSendMessage(message) {
+						const category = message.body?.category;
+						if (message.event === 'output' && (category === 'stdout' || category === 'stderr')) {
+							panel?.webview.postMessage({ type: 'log', stream: category, value: message.body.output });
+						}
+					},
+				};
+			},
+		}),
+	];
+
+	context.subscriptions.push(preview, onSave, toggleStats, debugTarget, ...debugging);
 }
 
-const reloadSupport = new Map<string, Promise<boolean>>();
+const versions = new Map<string, Promise<string>>();
 
-// In-place reloads came in ProcessingCLI 1.2.0, local builds say "dev"
-function supportsReload(path: string) {
-	let supported = reloadSupport.get(path);
-	if (!supported) {
-		supported = new Promise((resolve) => {
+function cliVersion(path: string) {
+	let version = versions.get(path);
+	if (!version) {
+		version = new Promise((resolve) => {
 			execFile(path, ['--version'], { windowsHide: true }, (error, stdout) => {
-				const version = /ProcessingCLI (\S+)/.exec(stdout)?.[1] ?? '';
-				const [major, minor] = version.split('.').map(Number);
-				resolve(!error && (version === 'dev' || major > 1 || (major === 1 && minor >= 2)));
+				resolve(error ? '' : /ProcessingCLI (\S+)/.exec(stdout)?.[1] ?? '');
 			});
 		});
-		reloadSupport.set(path, supported);
+		versions.set(path, version);
 	}
-	return supported;
+	return version;
+}
+
+// Local builds say "dev"
+async function atLeast(path: string, major: number, minor: number) {
+	const version = await cliVersion(path);
+	const [x, y] = version.split('.').map(Number);
+	return version.includes('dev') || x > major || (x === major && y >= minor);
+}
+
+// In-place reloads came in ProcessingCLI 1.2.0
+function supportsReload(path: string) {
+	return atLeast(path, 1, 2);
+}
+
+function supportsDebug(path: string) {
+	return atLeast(path, 1, 5);
 }
 
 function freePort() {

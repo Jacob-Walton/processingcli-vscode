@@ -41,6 +41,13 @@ export function setupDebug(context: ExtensionContext) {
 				config.sketch ??= file && dirname(file);
 				return config;
 			},
+			async resolveDebugConfigurationWithSubstitutedVariables(_folder, config: DebugConfiguration) {
+				// In the preview if it's open
+				if (config.preview === undefined && config.sketch) {
+					config.preview = await commands.executeCommand<string | undefined>('processing.preview.debugTarget', config.sketch);
+				}
+				return config;
+			},
 		}),
 		commands.registerCommand('processing.sketch.debug', async (resource?: Uri) => {
 			const file = (resource ?? window.activeTextEditor?.document.uri)?.fsPath;
